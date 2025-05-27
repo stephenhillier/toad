@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+type RouteOption func(*Route)
+
+func WithDescription(description string) RouteOption {
+	return func(route *Route) {
+		route.Description = description
+	}
+}
+
 type Api struct {
 	mux    *http.ServeMux
 	Routes []Route
@@ -29,10 +37,18 @@ func NewApi(mux *http.ServeMux) *Api {
 	return api
 }
 
-// AddRoute adds a route to the API.
-func (api *Api) AddRoute(pattern string) {
+// AddRoute adds a route to the API, and applies any provided options.
+// Options add metadata to the route (e.g. description)
+func (api *Api) AddRoute(pattern string, options ...RouteOption) {
 	method, path := SplitPattern(pattern)
-	api.Routes = append(api.Routes, Route{Method: method, Path: path})
+	route := Route{Method: method, Path: path}
+
+	for _, option := range options {
+		option(&route)
+	}
+
+	api.Routes = append(api.Routes, route)
+
 }
 
 // SplitPattern splits an http.ServeMux pattern into method and path,
@@ -44,7 +60,7 @@ func SplitPattern(pattern string) (string, string) {
 	return parts[0], parts[1]
 }
 
-func (api *Api) HandlerFunc(pattern string, handler func(w http.ResponseWriter, r *http.Request)) {
+func (api *Api) HandlerFunc(pattern string, handler func(w http.ResponseWriter, r *http.Request), options ...RouteOption) {
 	api.mux.HandleFunc(pattern, handler)
-	api.AddRoute(pattern)
+	api.AddRoute(pattern, options...)
 }

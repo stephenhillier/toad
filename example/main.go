@@ -18,7 +18,7 @@ func main() {
 	// Register a "hello world" handler
 	api.HandlerFunc("GET /hello", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Hello, World!")
-	})
+	}, buddy.WithDescription("Say hello"))
 
 	// Register another example handler
 	api.HandlerFunc("GET /greet/{name}", func(w http.ResponseWriter, r *http.Request) {

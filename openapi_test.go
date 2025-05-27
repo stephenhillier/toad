@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
 )
 
 func TestApiGenerate(t *testing.T) {
@@ -175,6 +177,18 @@ func TestApiGenerateMultipleOperationsOnSamePath(t *testing.T) {
 	var result map[string]interface{}
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("Generated JSON is invalid: %v", err)
+	}
+
+	// Validate OpenAPI spec
+	loader := openapi3.NewLoader()
+	doc, err := loader.LoadFromData(data)
+	if err != nil {
+		t.Fatalf("OpenAPI spec validation failed: %v", err)
+	}
+
+	// Validate the document
+	if err := doc.Validate(loader.Context); err != nil {
+		t.Fatalf("OpenAPI spec is invalid: %v", err)
 	}
 
 	// Get paths

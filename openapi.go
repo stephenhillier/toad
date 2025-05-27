@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
-	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 )
@@ -36,7 +35,9 @@ func (api *Api) generate() ([]byte, error) {
 		// Get or create path item
 		pathItem := doc.Paths.Find(route.Path)
 		if pathItem == nil {
-			pathItem = &openapi3.PathItem{}
+			pathItem = &openapi3.PathItem{
+				Description: "path item",
+			}
 			doc.Paths.Set(route.Path, pathItem)
 		}
 
@@ -82,24 +83,7 @@ func (api *Api) generate() ([]byte, error) {
 			},
 		}
 		operation.Responses.Set("200", &openapi3.ResponseRef{Value: response})
-
-		// Add operation to path item based on HTTP method
-		switch strings.ToUpper(route.Method) {
-		case "GET":
-			pathItem.Get = operation
-		case "POST":
-			pathItem.Post = operation
-		case "PUT":
-			pathItem.Put = operation
-		case "PATCH":
-			pathItem.Patch = operation
-		case "DELETE":
-			pathItem.Delete = operation
-		case "HEAD":
-			pathItem.Head = operation
-		case "OPTIONS":
-			pathItem.Options = operation
-		}
+		pathItem.SetOperation(route.Method, operation)
 	}
 
 	// Validate the document
@@ -141,6 +125,7 @@ func (api *Api) ServeDocs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)
 }
 
