@@ -34,10 +34,18 @@ Implement the `generate()` method in `openapi.go` to create a minimal, valid Ope
 - [x] Set parameter types and descriptions
 
 ## Task 5: Add Request/Response Schemas
-- [ ] Handle request body schemas based on `Route.Body` field
-- [ ] Add basic response schemas for common HTTP status codes
-- [ ] Use JSON content type as default
-- [ ] Create reusable schema components where appropriate
+- [x] Handle request body schemas based on `Route.Body` field
+- [x] Add basic response schemas for common HTTP status codes
+- [x] Use JSON content type as default
+- [x] Create reusable schema components where appropriate
+
+## Task 5b: Add Response Schemas:
+- [x] Define response schemas for each operation
+- [x] Use appropriate status codes and descriptions
+- [x] Handle error responses (e.g., 404 Not Found)
+- [x] Support custom response schemas via WithResponse option
+- [x] Custom responses override standard ones when provided
+- [x] Standard responses still added for missing status codes
 
 ## Task 6: Serialize to JSON
 - [ ] Validate the OpenAPI document using `doc.Validate()`

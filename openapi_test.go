@@ -8,6 +8,17 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
+type User struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type CreateUserRequest struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
 func TestApiGenerate(t *testing.T) {
 	// Create a new API instance with some test routes
 	api := &Api{
@@ -20,7 +31,7 @@ func TestApiGenerate(t *testing.T) {
 	}
 
 	// Generate OpenAPI spec
-	data, err := api.generate()
+	data, err := api.Generate()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -130,6 +141,322 @@ func TestApiGenerate(t *testing.T) {
 	}
 }
 
+type UserResponse struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	Code    int    `json:"code"`
+}
+
+func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
+	api := &Api{
+		mux: http.NewServeMux(),
+		Routes: []Route{
+			{
+				Method:      "GET",
+				Path:        "/users/{id}",
+				Description: "Get user by ID",
+				Responses: map[int]any{
+					200: UserResponse{},
+					404: ErrorResponse{},
+				},
+			},
+			{
+				Method:      "POST",
+				Path:        "/users",
+				Description: "Create a user",
+				Body:        CreateUserRequest{},
+				Responses: map[int]any{
+					201: UserResponse{},
+					400: ErrorResponse{},
+				},
+			},
+		},
+	}
+
+	data, err := api.Generate()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	var spec openapi3.T
+	err = json.Unmarshal(data, &spec)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	// Test GET /users/{id} custom responses
+	getOp := spec.Paths.Find("/users/{id}").Get
+	if getOp == nil {
+		t.Fatal("GET /users/{id} operation not found")
+	}
+
+	// Check custom 200 response with UserResponse schema
+	response200 := getOp.Responses.Value("200")
+	if response200 == nil {
+		t.Fatal("GET /users/{id} should have 200 response")
+	}
+	jsonContent200 := response200.Value.Content["application/json"]
+	if jsonContent200 == nil {
+		t.Fatal("200 response should have application/json content")
+	}
+	schema200 := jsonContent200.Schema.Value
+	if schema200.Properties == nil {
+		t.Fatal("200 response schema should have properties")
+	}
+	if schema200.Properties["id"] == nil {
+		t.Fatal("UserResponse schema should have 'id' property")
+	}
+	if schema200.Properties["name"] == nil {
+		t.Fatal("UserResponse schema should have 'name' property")
+	}
+	if schema200.Properties["email"] == nil {
+		t.Fatal("UserResponse schema should have 'email' property")
+	}
+
+	// Check custom 404 response with ErrorResponse schema
+	response404 := getOp.Responses.Value("404")
+	if response404 == nil {
+		t.Fatal("GET /users/{id} should have 404 response")
+	}
+	jsonContent404 := response404.Value.Content["application/json"]
+	if jsonContent404 == nil {
+		t.Fatal("404 response should have application/json content")
+	}
+	schema404 := jsonContent404.Schema.Value
+	if schema404.Properties == nil {
+		t.Fatal("404 response schema should have properties")
+	}
+	if schema404.Properties["error"] == nil {
+		t.Fatal("ErrorResponse schema should have 'error' property")
+	}
+	if schema404.Properties["message"] == nil {
+		t.Fatal("ErrorResponse schema should have 'message' property")
+	}
+	if schema404.Properties["code"] == nil {
+		t.Fatal("ErrorResponse schema should have 'code' property")
+	}
+
+	// Verify that standard responses are still added for missing status codes
+	if getOp.Responses.Value("400") == nil {
+		t.Fatal("GET operation should still have standard 400 response")
+	}
+	if getOp.Responses.Value("500") == nil {
+		t.Fatal("GET operation should still have standard 500 response")
+	}
+
+	// Test POST /users custom responses
+	postOp := spec.Paths.Find("/users").Post
+	if postOp == nil {
+		t.Fatal("POST /users operation not found")
+	}
+
+	// Check custom 201 response
+	response201 := postOp.Responses.Value("201")
+	if response201 == nil {
+		t.Fatal("POST /users should have 201 response")
+	}
+	jsonContent201 := response201.Value.Content["application/json"]
+	if jsonContent201 == nil {
+		t.Fatal("201 response should have application/json content")
+	}
+
+	// Check custom 400 response (should override standard one)
+	response400 := postOp.Responses.Value("400")
+	if response400 == nil {
+		t.Fatal("POST /users should have 400 response")
+	}
+	jsonContent400 := response400.Value.Content["application/json"]
+	if jsonContent400 == nil {
+		t.Fatal("400 response should have application/json content")
+	}
+	schema400 := jsonContent400.Schema.Value
+	if schema400.Properties["code"] == nil {
+		t.Fatal("Custom 400 ErrorResponse should have 'code' property (not standard error response)")
+	}
+
+	// Verify that standard responses are still added for missing status codes
+	if postOp.Responses.Value("200") == nil {
+		t.Fatal("POST operation should still have standard 200 response")
+	}
+	if postOp.Responses.Value("500") == nil {
+		t.Fatal("POST operation should still have standard 500 response")
+	}
+}
+
+func TestApiGenerateWithRequestBodySchemas(t *testing.T) {
+	api := &Api{
+		mux: http.NewServeMux(),
+		Routes: []Route{
+			{
+				Method:      "POST",
+				Path:        "/users",
+				Description: "Create a user",
+				Body:        CreateUserRequest{},
+			},
+			{
+				Method:      "PUT",
+				Path:        "/users/{id}",
+				Description: "Update a user",
+				Body:        User{},
+			},
+			{
+				Method:      "GET",
+				Path:        "/users",
+				Description: "Get all users",
+				Body:        nil, // No body for GET
+			},
+		},
+	}
+
+	data, err := api.Generate()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	var spec openapi3.T
+	err = json.Unmarshal(data, &spec)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	// Test POST /users has request body
+	postOp := spec.Paths.Find("/users").Post
+	if postOp == nil {
+		t.Fatal("POST /users operation not found")
+	}
+	if postOp.RequestBody == nil {
+		t.Fatal("POST /users should have request body")
+	}
+
+	// Verify request body content type
+	jsonContent := postOp.RequestBody.Value.Content["application/json"]
+	if jsonContent == nil {
+		t.Fatal("POST /users request body should have application/json content")
+	}
+
+	// Verify request body schema is object type
+	schema := jsonContent.Schema.Value
+	if schema.Type == nil || (*schema.Type)[0] != "object" {
+		t.Fatal("POST /users request body schema should be object type")
+	}
+
+	// Verify request body has expected properties
+	if schema.Properties == nil {
+		t.Fatal("POST /users request body schema should have properties")
+	}
+	if schema.Properties["name"] == nil {
+		t.Fatal("POST /users request body should have 'name' property")
+	}
+	if schema.Properties["email"] == nil {
+		t.Fatal("POST /users request body should have 'email' property")
+	}
+
+	// Test PUT /users/{id} has request body
+	putOp := spec.Paths.Find("/users/{id}").Put
+	if putOp == nil {
+		t.Fatal("PUT /users/{id} operation not found")
+	}
+	if putOp.RequestBody == nil {
+		t.Fatal("PUT /users/{id} should have request body")
+	}
+
+	// Test GET /users has no request body
+	getOp := spec.Paths.Find("/users").Get
+	if getOp == nil {
+		t.Fatal("GET /users operation not found")
+	}
+	if getOp.RequestBody != nil {
+		t.Fatal("GET /users should not have request body")
+	}
+}
+
+func TestApiGenerateResponseSchemas(t *testing.T) {
+	api := &Api{
+		mux: http.NewServeMux(),
+		Routes: []Route{
+			{Method: "GET", Path: "/users", Description: "Get all users"},
+			{Method: "POST", Path: "/users", Description: "Create a user"},
+			{Method: "DELETE", Path: "/users/{id}", Description: "Delete a user"},
+		},
+	}
+
+	data, err := api.Generate()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	var spec openapi3.T
+	err = json.Unmarshal(data, &spec)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	// Test GET operation responses
+	getOp := spec.Paths.Find("/users").Get
+	if getOp.Responses.Value("200") == nil {
+		t.Fatal("GET operation should have 200 response")
+	}
+	if getOp.Responses.Value("400") == nil {
+		t.Fatal("GET operation should have 400 response")
+	}
+	if getOp.Responses.Value("404") == nil {
+		t.Fatal("GET operation should have 404 response")
+	}
+	if getOp.Responses.Value("500") == nil {
+		t.Fatal("GET operation should have 500 response")
+	}
+
+	// Test POST operation responses
+	postOp := spec.Paths.Find("/users").Post
+	if postOp.Responses.Value("200") == nil {
+		t.Fatal("POST operation should have 200 response")
+	}
+	if postOp.Responses.Value("201") == nil {
+		t.Fatal("POST operation should have 201 response")
+	}
+	if postOp.Responses.Value("400") == nil {
+		t.Fatal("POST operation should have 400 response")
+	}
+	if postOp.Responses.Value("500") == nil {
+		t.Fatal("POST operation should have 500 response")
+	}
+
+	// Test DELETE operation responses
+	deleteOp := spec.Paths.Find("/users/{id}").Delete
+	if deleteOp.Responses.Value("200") == nil {
+		t.Fatal("DELETE operation should have 200 response")
+	}
+	if deleteOp.Responses.Value("204") == nil {
+		t.Fatal("DELETE operation should have 204 response")
+	}
+	if deleteOp.Responses.Value("404") == nil {
+		t.Fatal("DELETE operation should have 404 response")
+	}
+	if deleteOp.Responses.Value("500") == nil {
+		t.Fatal("DELETE operation should have 500 response")
+	}
+
+	// Verify error response structure
+	errorResponse := getOp.Responses.Value("400").Value
+	if errorResponse.Content["application/json"] == nil {
+		t.Fatal("Error responses should have application/json content")
+	}
+	
+	errorSchema := errorResponse.Content["application/json"].Schema.Value
+	if errorSchema.Properties["error"] == nil {
+		t.Fatal("Error response should have 'error' property")
+	}
+	if errorSchema.Properties["message"] == nil {
+		t.Fatal("Error response should have 'message' property")
+	}
+}
+
 func TestApiGenerateEmpty(t *testing.T) {
 	// Create a new API instance with no routes
 	api := &Api{
@@ -138,7 +465,7 @@ func TestApiGenerateEmpty(t *testing.T) {
 	}
 
 	// Generate OpenAPI spec
-	data, err := api.generate()
+	data, err := api.Generate()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -168,7 +495,7 @@ func TestApiGenerateMultipleOperationsOnSamePath(t *testing.T) {
 	}
 
 	// Generate OpenAPI spec
-	data, err := api.generate()
+	data, err := api.Generate()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}

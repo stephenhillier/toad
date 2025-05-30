@@ -13,6 +13,27 @@ func WithDescription(description string) RouteOption {
 	}
 }
 
+func WithBody(body any) RouteOption {
+	return func(route *Route) {
+		route.Body = body
+	}
+}
+
+func WithResponse(status int, schema any) RouteOption {
+	return func(route *Route) {
+		if route.Responses == nil {
+			route.Responses = make(map[int]any)
+		}
+
+		// ensure there is not already a schema registered for this status
+		if _, exists := route.Responses[status]; exists {
+			panic("response schema already registered")
+		}
+
+		route.Responses[status] = schema
+	}
+}
+
 type Api struct {
 	mux    *http.ServeMux
 	Routes []Route
@@ -23,6 +44,7 @@ type Route struct {
 	Method      string
 	Path        string
 	Body        any
+	Responses   map[int]any
 }
 
 func NewApi(mux *http.ServeMux) *Api {
