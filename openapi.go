@@ -12,7 +12,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-//go:embed docs.html
+//go:embed static/scalar.html
 var ui embed.FS
 
 func (api *Api) Generate() ([]byte, error) {
@@ -331,7 +331,7 @@ func (api *Api) ServeDocs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *Api) ServeDocsHTML(w http.ResponseWriter, r *http.Request) {
-	data, err := ui.ReadFile("docs.html")
+	data, err := ui.ReadFile("static/scalar.html")
 	if err != nil {
 		http.Error(w, "Documentation not found", http.StatusNotFound)
 		return
