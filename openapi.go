@@ -36,26 +36,26 @@ func (api *Api) Generate() ([]byte, error) {
 	}
 
 	// Convert routes to OpenAPI paths
-	for _, route := range api.Routes {
+	for _, route := range api.routes {
 		// Get or create path item
-		pathItem := doc.Paths.Find(route.Path)
+		pathItem := doc.Paths.Find(route.path)
 		if pathItem == nil {
 			pathItem = &openapi3.PathItem{
 				Description: "path item",
 			}
-			doc.Paths.Set(route.Path, pathItem)
+			doc.Paths.Set(route.path, pathItem)
 		}
 
 		// Create operation
 		operation := &openapi3.Operation{
-			Summary:     route.Description,
-			Description: route.Description,
+			Summary:     route.title,
+			Description: route.description,
 			Responses:   openapi3.NewResponses(),
 		}
 
-		// Add request body if Body field is present
-		if route.Body != nil {
-			bodySchema := createSchemaFromValue(route.Body)
+		// Add a request body when a body type was selected
+		if route.bodyType != nil {
+			bodySchema := createSchemaFromType(route.bodyType)
 			operation.RequestBody = &openapi3.RequestBodyRef{
 				Value: &openapi3.RequestBody{
 					Description: "Request body",
@@ -72,7 +72,7 @@ func (api *Api) Generate() ([]byte, error) {
 		}
 
 		// Extract and add path parameters
-		pathParams := extractPathParameters(route.Path)
+		pathParams := extractPathParameters(route.path)
 		for _, param := range pathParams {
 			if operation.Parameters == nil {
 				operation.Parameters = make([]*openapi3.ParameterRef, 0)
@@ -92,9 +92,9 @@ func (api *Api) Generate() ([]byte, error) {
 			})
 		}
 
-		// Add responses (custom first, then standard)
+		// Add the selected managed success response
 		addResponses(operation, route)
-		pathItem.SetOperation(route.Method, operation)
+		pathItem.SetOperation(route.method, operation)
 	}
 
 	// Validate the document
@@ -263,31 +263,19 @@ func getJSONFieldName(field reflect.StructField) string {
 	return field.Name
 }
 
-// addResponses adds custom and standard HTTP responses to an operation
-func addResponses(operation *openapi3.Operation, route Route) {
-	// First add custom responses from the route
-	addCustomResponses(operation, route.Responses)
-}
-
-// addCustomResponses adds custom response schemas from Route.Responses
-func addCustomResponses(operation *openapi3.Operation, responses map[int]any) {
-	if responses == nil {
+// addResponses retains the baseline default plus the single managed success.
+// Decoder/error-envelope documentation and the final response policy are Task 5.
+func addResponses(operation *openapi3.Operation, route routeRecord) {
+	if route.mode == ordinary {
 		return
 	}
-
-	for statusCode, schema := range responses {
-		response := &openapi3.Response{
-			Description: ptr(getResponseDescription(statusCode)),
-			Content: openapi3.Content{
-				"application/json": &openapi3.MediaType{
-					Schema: &openapi3.SchemaRef{
-						Value: createSchemaFromValue(schema),
-					},
-				},
-			},
-		}
-		operation.Responses.Set(fmt.Sprintf("%d", statusCode), &openapi3.ResponseRef{Value: response})
+	response := &openapi3.Response{
+		Description: ptr(getResponseDescription(route.status)),
+		Content: openapi3.Content{
+			"application/json": &openapi3.MediaType{Schema: &openapi3.SchemaRef{Value: createSchemaFromType(route.resultType)}},
+		},
 	}
+	operation.Responses.Set(fmt.Sprintf("%d", route.status), &openapi3.ResponseRef{Value: response})
 }
 
 // getResponseDescription returns a default description for common HTTP status codes

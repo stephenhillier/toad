@@ -8,10 +8,7 @@ import (
 
 func TestApiHandlerFunc(t *testing.T) {
 	// Create a new API instance
-	api := &Api{
-		mux:    http.NewServeMux(),
-		Routes: []Route{},
-	}
+	api := NewApi(http.NewServeMux())
 
 	// Define a test handler
 	testHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -23,19 +20,19 @@ func TestApiHandlerFunc(t *testing.T) {
 	pattern := "GET /test"
 
 	// Call HandlerFunc
-	api.HandlerFunc(pattern, testHandler)
+	api.Route(pattern).HandlerFunc(testHandler)
 
-	// Verify that the route was added to Routes
-	if len(api.Routes) != 1 {
-		t.Errorf("Expected 1 route, got %d", len(api.Routes))
+	// Verify that the finalized route was published to the private registry
+	if len(api.routes) != 1 {
+		t.Errorf("Expected 1 route, got %d", len(api.routes))
 	}
 
-	route := api.Routes[0]
-	if route.Method != "GET" {
-		t.Errorf("Expected method 'GET', got '%s'", route.Method)
+	route := api.routes[0]
+	if route.method != "GET" {
+		t.Errorf("Expected method 'GET', got '%s'", route.method)
 	}
-	if route.Path != "/test" {
-		t.Errorf("Expected path '/test', got '%s'", route.Path)
+	if route.path != "/test" {
+		t.Errorf("Expected path '/test', got '%s'", route.path)
 	}
 
 	// Test that the handler was actually registered with the mux
@@ -54,3 +51,5 @@ func TestApiHandlerFunc(t *testing.T) {
 		t.Errorf("Expected body '%s', got '%s'", expected, rr.Body.String())
 	}
 }
+
+func noopHandler(w http.ResponseWriter, r *http.Request) {}

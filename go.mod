@@ -1,6 +1,6 @@
 module github.com/stephenhillier/buddy
 
-go 1.24.2
+go 1.27
 
 require github.com/getkin/kin-openapi v0.132.0
 

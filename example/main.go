@@ -36,28 +36,9 @@ func main() {
 	mux := http.NewServeMux()
 	api := buddy.NewApi(mux)
 
-	// Example 1: GET with custom success and error responses
-	api.HandlerFunc("GET /users/{id}", getUserHandler,
-		buddy.WithDescription("Get user by ID"),
-		buddy.WithResponse(200, User{}),
-		buddy.WithResponse(404, ErrorResponse{}),
-	)
-
-	// Example 2: POST with custom created and validation error responses
-	api.HandlerFunc("POST /users", createUserHandler,
-		buddy.WithDescription("Create a new user"),
-		buddy.WithBody(CreateUserRequest{}),
-		buddy.WithResponse(201, User{}),
-		buddy.WithResponse(400, ErrorResponse{}),
-		buddy.WithResponse(422, ErrorResponse{}),
-	)
-
-	// Example 3: DELETE with custom success response
-	api.HandlerFunc("DELETE /users/{id}", deleteUserHandler,
-		buddy.WithDescription("Delete a user"),
-		buddy.WithResponse(200, SuccessResponse{}),
-		buddy.WithResponse(404, ErrorResponse{}),
-	)
+	api.Route("GET /users/{id}").Description("Get user by ID").HandlerFunc(getUserHandler)
+	api.Route("POST /users").Description("Create a new user").Body(CreateUserRequest{}).HandlerFunc(createUserHandler)
+	api.Route("DELETE /users/{id}").Description("Delete a user").HandlerFunc(deleteUserHandler)
 
 	// Start the server
 	fmt.Println("Server starting on :8080")
@@ -76,10 +57,8 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-func createUserHandler(w http.ResponseWriter, r *http.Request) {
+func createUserHandler(w http.ResponseWriter, r *http.Request, req CreateUserRequest) {
 	// Mock implementation
-	var req CreateUserRequest
-	json.NewDecoder(r.Body).Decode(&req)
 
 	user := User{ID: 2, Name: req.Name, Email: req.Email}
 	w.Header().Set("Content-Type", "application/json")

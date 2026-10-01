@@ -20,15 +20,10 @@ type CreateUserRequest struct {
 }
 
 func TestApiGenerate(t *testing.T) {
-	// Create a new API instance with some test routes
-	api := &Api{
-		mux: http.NewServeMux(),
-		Routes: []Route{
-			{Method: "GET", Path: "/users", Description: "Get all users"},
-			{Method: "POST", Path: "/users", Description: "Create a user"},
-			{Method: "GET", Path: "/users/{id}", Description: "Get user by ID"},
-		},
-	}
+	api := NewApi(http.NewServeMux())
+	api.Route("GET /users").Title("Get all users").Description("Get all users").HandlerFunc(noopHandler)
+	api.Route("POST /users").Title("Create a user").Description("Create a user").HandlerFunc(noopHandler)
+	api.Route("GET /users/{id}").Title("Get user by ID").Description("Get user by ID").HandlerFunc(noopHandler)
 
 	// Generate OpenAPI spec
 	data, err := api.Generate()
@@ -154,128 +149,37 @@ type ErrorResponse struct {
 }
 
 func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
-	api := &Api{
-		mux: http.NewServeMux(),
-		Routes: []Route{
-			{
-				Method:      "GET",
-				Path:        "/users/{id}",
-				Description: "Get user by ID",
-				Responses: map[int]any{
-					200: UserResponse{},
-					404: ErrorResponse{},
-				},
-			},
-			{
-				Method:      "POST",
-				Path:        "/users",
-				Description: "Create a user",
-				Body:        CreateUserRequest{},
-				Responses: map[int]any{
-					201: UserResponse{},
-					400: ErrorResponse{},
-				},
-			},
-		},
-	}
-
+	api := NewApi(http.NewServeMux())
+	api.Route("GET /users/{id}").Description("Get user by ID").Response(http.StatusOK, UserResponse{}).
+		HandlerFunc(func(r *http.Request) (UserResponse, error) { return UserResponse{}, nil })
+	api.Route("POST /users").Description("Create a user").Body(CreateUserRequest{}).Status(http.StatusCreated).
+		HandlerFunc(func(r *http.Request, body CreateUserRequest) (UserResponse, error) { return UserResponse{}, nil })
 	data, err := api.Generate()
 	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
+		t.Fatal(err)
 	}
-
 	var spec openapi3.T
-	err = json.Unmarshal(data, &spec)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatal(err)
 	}
-
-	// Test GET /users/{id} custom responses
-	getOp := spec.Paths.Find("/users/{id}").Get
-	if getOp == nil {
-		t.Fatal("GET /users/{id} operation not found")
+	for _, test := range []struct {
+		operation *openapi3.Operation
+		status    string
+	}{
+		{spec.Paths.Find("/users/{id}").Get, "200"},
+		{spec.Paths.Find("/users").Post, "201"},
+	} {
+		assertResponseStatuses(t, test.operation.Responses, "default", test.status)
+		content := test.operation.Responses.Value(test.status).Value.Content["application/json"]
+		if content == nil || content.Schema == nil {
+			t.Fatal("Expected JSON success schema")
+		}
+		for _, property := range []string{"id", "name", "email"} {
+			if content.Schema.Value.Properties[property] == nil {
+				t.Errorf("Missing UserResponse property %s", property)
+			}
+		}
 	}
-
-	// Check custom 200 response with UserResponse schema
-	response200 := getOp.Responses.Value("200")
-	if response200 == nil {
-		t.Fatal("GET /users/{id} should have 200 response")
-	}
-	jsonContent200 := response200.Value.Content["application/json"]
-	if jsonContent200 == nil {
-		t.Fatal("200 response should have application/json content")
-	}
-	schema200 := jsonContent200.Schema.Value
-	if schema200.Properties == nil {
-		t.Fatal("200 response schema should have properties")
-	}
-	if schema200.Properties["id"] == nil {
-		t.Fatal("UserResponse schema should have 'id' property")
-	}
-	if schema200.Properties["name"] == nil {
-		t.Fatal("UserResponse schema should have 'name' property")
-	}
-	if schema200.Properties["email"] == nil {
-		t.Fatal("UserResponse schema should have 'email' property")
-	}
-
-	// Check custom 404 response with ErrorResponse schema
-	response404 := getOp.Responses.Value("404")
-	if response404 == nil {
-		t.Fatal("GET /users/{id} should have 404 response")
-	}
-	jsonContent404 := response404.Value.Content["application/json"]
-	if jsonContent404 == nil {
-		t.Fatal("404 response should have application/json content")
-	}
-	schema404 := jsonContent404.Schema.Value
-	if schema404.Properties == nil {
-		t.Fatal("404 response schema should have properties")
-	}
-	if schema404.Properties["error"] == nil {
-		t.Fatal("ErrorResponse schema should have 'error' property")
-	}
-	if schema404.Properties["message"] == nil {
-		t.Fatal("ErrorResponse schema should have 'message' property")
-	}
-	if schema404.Properties["code"] == nil {
-		t.Fatal("ErrorResponse schema should have 'code' property")
-	}
-
-	// The current generator adds only declared statuses alongside kin-openapi's default.
-	assertResponseStatuses(t, getOp.Responses, "default", "200", "404")
-
-	// Test POST /users custom responses
-	postOp := spec.Paths.Find("/users").Post
-	if postOp == nil {
-		t.Fatal("POST /users operation not found")
-	}
-
-	// Check custom 201 response
-	response201 := postOp.Responses.Value("201")
-	if response201 == nil {
-		t.Fatal("POST /users should have 201 response")
-	}
-	jsonContent201 := response201.Value.Content["application/json"]
-	if jsonContent201 == nil {
-		t.Fatal("201 response should have application/json content")
-	}
-
-	// Check the explicitly declared 400 response.
-	response400 := postOp.Responses.Value("400")
-	if response400 == nil {
-		t.Fatal("POST /users should have 400 response")
-	}
-	jsonContent400 := response400.Value.Content["application/json"]
-	if jsonContent400 == nil {
-		t.Fatal("400 response should have application/json content")
-	}
-	schema400 := jsonContent400.Schema.Value
-	if schema400.Properties["code"] == nil {
-		t.Fatal("Custom 400 ErrorResponse should have 'code' property")
-	}
-
-	assertResponseStatuses(t, postOp.Responses, "default", "201", "400")
 }
 
 func assertResponseStatuses(t *testing.T, responses *openapi3.Responses, statuses ...string) {
@@ -294,29 +198,12 @@ func assertResponseStatuses(t *testing.T, responses *openapi3.Responses, statuse
 }
 
 func TestApiGenerateWithRequestBodySchemas(t *testing.T) {
-	api := &Api{
-		mux: http.NewServeMux(),
-		Routes: []Route{
-			{
-				Method:      "POST",
-				Path:        "/users",
-				Description: "Create a user",
-				Body:        CreateUserRequest{},
-			},
-			{
-				Method:      "PUT",
-				Path:        "/users/{id}",
-				Description: "Update a user",
-				Body:        User{},
-			},
-			{
-				Method:      "GET",
-				Path:        "/users",
-				Description: "Get all users",
-				Body:        nil, // No body for GET
-			},
-		},
-	}
+	api := NewApi(http.NewServeMux())
+	api.Route("POST /users").Description("Create a user").Body(CreateUserRequest{}).
+		HandlerFunc(func(w http.ResponseWriter, r *http.Request, body CreateUserRequest) {})
+	api.Route("PUT /users/{id}").Description("Update a user").Body(User{}).
+		HandlerFunc(func(w http.ResponseWriter, r *http.Request, body User) {})
+	api.Route("GET /users").Description("Get all users").HandlerFunc(noopHandler)
 
 	data, err := api.Generate()
 	if err != nil {
@@ -381,14 +268,10 @@ func TestApiGenerateWithRequestBodySchemas(t *testing.T) {
 }
 
 func TestApiGenerateResponseSchemas(t *testing.T) {
-	api := &Api{
-		mux: http.NewServeMux(),
-		Routes: []Route{
-			{Method: "GET", Path: "/users", Description: "Get all users"},
-			{Method: "POST", Path: "/users", Description: "Create a user"},
-			{Method: "DELETE", Path: "/users/{id}", Description: "Delete a user"},
-		},
-	}
+	api := NewApi(http.NewServeMux())
+	api.Route("GET /users").Description("Get all users").HandlerFunc(noopHandler)
+	api.Route("POST /users").Description("Create a user").HandlerFunc(noopHandler)
+	api.Route("DELETE /users/{id}").Description("Delete a user").HandlerFunc(noopHandler)
 
 	data, err := api.Generate()
 	if err != nil {
@@ -422,10 +305,7 @@ func TestApiGenerateResponseSchemas(t *testing.T) {
 
 func TestApiGenerateEmpty(t *testing.T) {
 	// Create a new API instance with no routes
-	api := &Api{
-		mux:    http.NewServeMux(),
-		Routes: []Route{},
-	}
+	api := NewApi(http.NewServeMux())
 
 	// Generate OpenAPI spec
 	data, err := api.Generate()
@@ -447,15 +327,11 @@ func TestApiGenerateEmpty(t *testing.T) {
 
 func TestApiGenerateMultipleOperationsOnSamePath(t *testing.T) {
 	// Create API with multiple operations on same path
-	api := &Api{
-		mux: http.NewServeMux(),
-		Routes: []Route{
-			{Method: "GET", Path: "/items", Description: "Get all items"},
-			{Method: "POST", Path: "/items", Description: "Create an item"},
-			{Method: "PUT", Path: "/items", Description: "Update items"},
-			{Method: "DELETE", Path: "/items", Description: "Delete all items"},
-		},
-	}
+	api := NewApi(http.NewServeMux())
+	api.Route("GET /items").Title("Get all items").HandlerFunc(noopHandler)
+	api.Route("POST /items").Title("Create an item").HandlerFunc(noopHandler)
+	api.Route("PUT /items").Title("Update items").HandlerFunc(noopHandler)
+	api.Route("DELETE /items").Title("Delete all items").HandlerFunc(noopHandler)
 
 	// Generate OpenAPI spec
 	data, err := api.Generate()
