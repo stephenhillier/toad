@@ -134,7 +134,7 @@ func (s builderState) current() {
 		s.config.fail("obsolete builder does not match the selected body/response state")
 	}
 }
-func (s builderState) finalize(handler http.Handler, nilHandler bool, resultType reflect.Type) {
+func (s builderState) finalize(makeHandler func(routeRecord) http.Handler, nilHandler bool, resultType reflect.Type) {
 	s.current()
 	c := s.config
 	if nilHandler {
@@ -154,6 +154,8 @@ func (s builderState) finalize(handler http.Handler, nilHandler bool, resultType
 			c.fail("parameter names must agree across registrations of the same path template")
 		}
 	}
+	// Build the runtime adapter from the same snapshot published to Generate.
+	handler := makeHandler(r)
 	// ServeMux can panic for conflicts. Add context without swallowing the failure
 	// or publishing metadata. The route remains unfinished if registration fails.
 	func() {

@@ -28,7 +28,7 @@ func (b *RouteBuilder) Status(status int) *StatusBuilder {
 }
 
 func (b *RouteBuilder) HandlerFunc(handler func(w http.ResponseWriter, r *http.Request)) {
-	b.builderState.finalize(http.HandlerFunc(handler), handler == nil, nil)
+	b.builderState.finalize(func(routeRecord) http.Handler { return http.HandlerFunc(handler) }, handler == nil, nil)
 }
 
 // BodyBuilder configures an ordinary HTTP handler with a typed JSON body.
@@ -54,15 +54,15 @@ func (b *BodyBuilder[B]) Status(status int) *BodyStatusBuilder[B] {
 }
 
 func (b *BodyBuilder[B]) HandlerFunc(handler func(w http.ResponseWriter, r *http.Request, body B)) {
-	b.builderState.current()
-	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, ok := decodeBody[B](w, r)
-		if !ok {
-			return
-		}
-		handler(w, r, body)
-	})
-	b.builderState.finalize(wrapped, handler == nil, nil)
+	b.builderState.finalize(func(record routeRecord) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, ok := decodeBody[B](w, r)
+			if !ok {
+				return
+			}
+			handler(w, r, body)
+		})
+	}, handler == nil, nil)
 }
 
 // ResponseBuilder configures a managed handler with an explicit result type.
@@ -96,14 +96,12 @@ func (b *ResponseBuilder[R]) Error(status int, sentinel error) *ResponseBuilder[
 }
 
 func (b *ResponseBuilder[R]) HandlerFunc(handler func(r *http.Request) (R, error)) {
-	b.builderState.current()
-	status := b.config.record.status
-	mappings := append([]errorMapping(nil), b.config.record.errors...)
-	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result, err := handler(r)
-		writeManaged(w, result, err, status, mappings)
-	})
-	b.builderState.finalize(wrapped, handler == nil, reflect.TypeFor[R]())
+	b.builderState.finalize(func(record routeRecord) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			result, err := handler(r)
+			writeManaged(w, result, err, record.status, record.errors)
+		})
+	}, handler == nil, reflect.TypeFor[R]())
 }
 
 // BodyResponseBuilder configures a managed handler with typed body and result.
@@ -137,18 +135,16 @@ func (b *BodyResponseBuilder[B, R]) Error(status int, sentinel error) *BodyRespo
 }
 
 func (b *BodyResponseBuilder[B, R]) HandlerFunc(handler func(r *http.Request, body B) (R, error)) {
-	b.builderState.current()
-	status := b.config.record.status
-	mappings := append([]errorMapping(nil), b.config.record.errors...)
-	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, ok := decodeBody[B](w, r)
-		if !ok {
-			return
-		}
-		result, err := handler(r, body)
-		writeManaged(w, result, err, status, mappings)
-	})
-	b.builderState.finalize(wrapped, handler == nil, reflect.TypeFor[R]())
+	b.builderState.finalize(func(record routeRecord) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, ok := decodeBody[B](w, r)
+			if !ok {
+				return
+			}
+			result, err := handler(r, body)
+			writeManaged(w, result, err, record.status, record.errors)
+		})
+	}, handler == nil, reflect.TypeFor[R]())
 }
 
 // StatusBuilder configures a managed handler whose result type is inferred.
@@ -179,14 +175,12 @@ func (b *StatusBuilder) Error(status int, sentinel error) *StatusBuilder {
 }
 
 func (b *StatusBuilder) HandlerFunc[R any](handler func(r *http.Request) (R, error)) {
-	b.builderState.current()
-	status := b.config.record.status
-	mappings := append([]errorMapping(nil), b.config.record.errors...)
-	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result, err := handler(r)
-		writeManaged(w, result, err, status, mappings)
-	})
-	b.builderState.finalize(wrapped, handler == nil, reflect.TypeFor[R]())
+	b.builderState.finalize(func(record routeRecord) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			result, err := handler(r)
+			writeManaged(w, result, err, record.status, record.errors)
+		})
+	}, handler == nil, reflect.TypeFor[R]())
 }
 
 // BodyStatusBuilder configures a managed handler with a typed JSON body and an
@@ -221,16 +215,14 @@ func (b *BodyStatusBuilder[B]) Error(status int, sentinel error) *BodyStatusBuil
 }
 
 func (b *BodyStatusBuilder[B]) HandlerFunc[R any](handler func(r *http.Request, body B) (R, error)) {
-	b.builderState.current()
-	status := b.config.record.status
-	mappings := append([]errorMapping(nil), b.config.record.errors...)
-	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, ok := decodeBody[B](w, r)
-		if !ok {
-			return
-		}
-		result, err := handler(r, body)
-		writeManaged(w, result, err, status, mappings)
-	})
-	b.builderState.finalize(wrapped, handler == nil, reflect.TypeFor[R]())
+	b.builderState.finalize(func(record routeRecord) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, ok := decodeBody[B](w, r)
+			if !ok {
+				return
+			}
+			result, err := handler(r, body)
+			writeManaged(w, result, err, record.status, record.errors)
+		})
+	}, handler == nil, reflect.TypeFor[R]())
 }

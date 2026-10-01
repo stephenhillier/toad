@@ -38,7 +38,7 @@ func (api *Api) Generate() ([]byte, error) {
 	// Convert routes to OpenAPI paths
 	for _, route := range api.routes {
 		// Get or create path item
-		pathItem := doc.Paths.Find(route.path)
+		pathItem := doc.Paths.Value(route.path)
 		if pathItem == nil {
 			pathItem = &openapi3.PathItem{
 				Description: "path item",
