@@ -55,8 +55,9 @@ func (b *BodyBuilder[B]) Status(status int) *BodyStatusBuilder[B] {
 
 func (b *BodyBuilder[B]) HandlerFunc(handler func(w http.ResponseWriter, r *http.Request, body B)) {
 	b.builderState.finalize(func(record routeRecord) http.Handler {
+		api := b.config.api
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			body, ok := decodeBody[B](w, r)
+			body, ok := decodeBody[B](w, r, api.bodyLimit)
 			if !ok {
 				return
 			}
@@ -136,8 +137,9 @@ func (b *BodyResponseBuilder[B, R]) Error(status int, sentinel error) *BodyRespo
 
 func (b *BodyResponseBuilder[B, R]) HandlerFunc(handler func(r *http.Request, body B) (R, error)) {
 	b.builderState.finalize(func(record routeRecord) http.Handler {
+		api := b.config.api
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			body, ok := decodeBody[B](w, r)
+			body, ok := decodeBody[B](w, r, api.bodyLimit)
 			if !ok {
 				return
 			}
@@ -216,8 +218,9 @@ func (b *BodyStatusBuilder[B]) Error(status int, sentinel error) *BodyStatusBuil
 
 func (b *BodyStatusBuilder[B]) HandlerFunc[R any](handler func(r *http.Request, body B) (R, error)) {
 	b.builderState.finalize(func(record routeRecord) http.Handler {
+		api := b.config.api
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			body, ok := decodeBody[B](w, r)
+			body, ok := decodeBody[B](w, r, api.bodyLimit)
 			if !ok {
 				return
 			}

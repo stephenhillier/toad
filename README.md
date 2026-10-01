@@ -27,10 +27,29 @@ api.Route("GET /health").
     })
 ```
 
-Task 1b provides typed ordinary, explicit-response, and inferred-response builders.
-Required JSON body validation, limits, the managed JSON error envelope, and the
-complete OpenAPI response policy are planned in subsequent milestones; see
-[the implementation plan](plans/01-poc.md) and [API design](plans/API_DESIGN.md).
+Typed ordinary, explicit-response, and inferred-response builders support required
+struct-valued bodies through `Body(Model{})`. Each request receives a fresh value;
+prototype fields are not defaults. Requests must use `application/json` (valid
+media-type parameters are accepted) and contain exactly one JSON object. Empty,
+null, malformed, incompatible, or trailing input returns 400; missing or
+unsupported content types return 415. Unknown fields are accepted. Missing
+individual fields and business validation remain the handler's responsibility.
+
+Bodies are limited to **1 MiB (1,048,576 bytes)** by default. Oversized bodies
+return 413, including when Content-Length is absent. All bytes count toward the
+limit, including whitespace. Override the limit during startup, before serving:
+
+```go
+api := buddy.NewApi(mux).BodyLimit(2 << 20) // 2 MiB
+```
+
+`BodyLimit` requires a positive byte count and applies to all typed-body routes,
+including routes already registered. Invalid content types are rejected before
+reading; otherwise the size limit is checked before decoding. Every decoding
+failure stops before the application handler runs and currently returns generic
+HTTP status text. The shared managed JSON error envelope and complete OpenAPI
+response policy remain planned; see [the implementation plan](plans/01-poc.md)
+and [API design](plans/API_DESIGN.md).
 
 Buddy uses the supplied `http.ServeMux`, so external middleware can wrap it as
 usual (`http.ListenAndServe(":8080", middleware(mux))`). Request contexts,

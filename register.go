@@ -12,8 +12,23 @@ import (
 // Api registers handlers and generates their OpenAPI documentation. Configure
 // routes during startup; concurrent configuration is not supported.
 type Api struct {
-	mux    *http.ServeMux
-	routes []routeRecord
+	mux       *http.ServeMux
+	routes    []routeRecord
+	bodyLimit int64
+}
+
+// DefaultBodyLimit is the maximum JSON request body size in bytes (1 MiB).
+const DefaultBodyLimit int64 = 1 << 20
+
+// BodyLimit sets the maximum size in bytes for all typed JSON request bodies.
+// Configure it during startup, before serving requests. It applies to routes
+// registered both before and after this call. Non-positive limits panic.
+func (api *Api) BodyLimit(bytes int64) *Api {
+	if bytes <= 0 {
+		panic("buddy: BodyLimit requires a positive byte limit")
+	}
+	api.bodyLimit = bytes
+	return api
 }
 
 type responseMode uint8
@@ -56,7 +71,7 @@ func NewApi(mux *http.ServeMux) *Api {
 	if mux == nil {
 		panic("buddy: NewApi requires a non-nil ServeMux")
 	}
-	api := &Api{mux: mux}
+	api := &Api{mux: mux, bodyLimit: DefaultBodyLimit}
 	api.mux.HandleFunc("GET /openapi.json", api.ServeDocs)
 	api.mux.HandleFunc("GET /docs", api.ServeDocsHTML)
 	return api

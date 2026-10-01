@@ -64,7 +64,9 @@ func TestUnfinishedAndSharedBuilderState(t *testing.T) {
 		w.WriteHeader(201)
 	})
 	rr = httptest.NewRecorder()
-	api.mux.ServeHTTP(rr, httptest.NewRequest("POST", "/test", strings.NewReader(`{"email":"test@example.com"}`)))
+	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"email":"test@example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	api.mux.ServeHTTP(rr, req)
 	if rr.Code != 201 {
 		t.Fatalf("Registered body handler returned %d", rr.Code)
 	}
@@ -117,7 +119,9 @@ func TestTypedManagedFinalization(t *testing.T) {
 				t.Fatalf("Unexpected body type: %v", r.bodyType)
 			}
 			rr := httptest.NewRecorder()
-			api.mux.ServeHTTP(rr, httptest.NewRequest("POST", "/users", strings.NewReader(`{"name":"Ada"}`)))
+			req := httptest.NewRequest("POST", "/users", strings.NewReader(`{"name":"Ada"}`))
+			req.Header.Set("Content-Type", "application/json")
+			api.mux.ServeHTTP(rr, req)
 			if rr.Code != 201 || !strings.Contains(rr.Body.String(), `"id":7`) {
 				t.Fatalf("Unexpected response: %d %s", rr.Code, rr.Body)
 			}

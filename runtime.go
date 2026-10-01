@@ -1,18 +1,49 @@
 package buddy
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime"
 	"net/http"
 )
 
 // These direct generic adapters connect the builder contracts to net/http.
-// Full required-body and managed-error policies are implemented in Tasks 3/4.
-func decodeBody[B any](w http.ResponseWriter, r *http.Request) (B, bool) {
+// Managed-error policies are implemented in Task 4.
+func decodeBody[B any](w http.ResponseWriter, r *http.Request, limit int64) (B, bool) {
 	var body B
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+	fail := func(status int) (B, bool) {
+		http.Error(w, http.StatusText(status), status)
 		return body, false
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		return fail(http.StatusUnsupportedMediaType)
+	}
+	if r.Body == nil {
+		return fail(http.StatusBadRequest)
+	}
+	// Bound the read before decoding, including whitespace and trailing data.
+	// This also detects oversized bodies when Content-Length is absent or wrong.
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return fail(http.StatusRequestEntityTooLarge)
+		}
+		return fail(http.StatusBadRequest)
+	}
+	data = bytes.Trim(data, " \t\r\n")
+	// Check the top-level shape even when B implements custom JSON unmarshaling.
+	if len(data) == 0 || data[0] != '{' {
+		return fail(http.StatusBadRequest)
+	}
+	// Unmarshal requires exactly one value, allowing only trailing whitespace.
+	// Unknown fields remain permissive, following the standard JSON behavior.
+	if err := json.Unmarshal(data, &body); err != nil {
+		return fail(http.StatusBadRequest)
 	}
 	return body, true
 }
