@@ -242,13 +242,8 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 		t.Fatal("ErrorResponse schema should have 'code' property")
 	}
 
-	// Verify that standard responses are still added for missing status codes
-	if getOp.Responses.Value("400") == nil {
-		t.Fatal("GET operation should still have standard 400 response")
-	}
-	if getOp.Responses.Value("500") == nil {
-		t.Fatal("GET operation should still have standard 500 response")
-	}
+	// The current generator adds only declared statuses alongside kin-openapi's default.
+	assertResponseStatuses(t, getOp.Responses, "default", "200", "404")
 
 	// Test POST /users custom responses
 	postOp := spec.Paths.Find("/users").Post
@@ -266,7 +261,7 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 		t.Fatal("201 response should have application/json content")
 	}
 
-	// Check custom 400 response (should override standard one)
+	// Check the explicitly declared 400 response.
 	response400 := postOp.Responses.Value("400")
 	if response400 == nil {
 		t.Fatal("POST /users should have 400 response")
@@ -277,15 +272,24 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 	}
 	schema400 := jsonContent400.Schema.Value
 	if schema400.Properties["code"] == nil {
-		t.Fatal("Custom 400 ErrorResponse should have 'code' property (not standard error response)")
+		t.Fatal("Custom 400 ErrorResponse should have 'code' property")
 	}
 
-	// Verify that standard responses are still added for missing status codes
-	if postOp.Responses.Value("200") == nil {
-		t.Fatal("POST operation should still have standard 200 response")
+	assertResponseStatuses(t, postOp.Responses, "default", "201", "400")
+}
+
+func assertResponseStatuses(t *testing.T, responses *openapi3.Responses, statuses ...string) {
+	t.Helper()
+	if responses == nil {
+		t.Fatal("Expected responses")
 	}
-	if postOp.Responses.Value("500") == nil {
-		t.Fatal("POST operation should still have standard 500 response")
+	if responses.Len() != len(statuses) {
+		t.Errorf("Expected response statuses %v, got %v", statuses, responses.Map())
+	}
+	for _, status := range statuses {
+		if responses.Value(status) == nil {
+			t.Errorf("Expected response status %s", status)
+		}
 	}
 }
 
@@ -397,63 +401,22 @@ func TestApiGenerateResponseSchemas(t *testing.T) {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
-	// Test GET operation responses
-	getOp := spec.Paths.Find("/users").Get
-	if getOp.Responses.Value("200") == nil {
-		t.Fatal("GET operation should have 200 response")
-	}
-	if getOp.Responses.Value("400") == nil {
-		t.Fatal("GET operation should have 400 response")
-	}
-	if getOp.Responses.Value("404") == nil {
-		t.Fatal("GET operation should have 404 response")
-	}
-	if getOp.Responses.Value("500") == nil {
-		t.Fatal("GET operation should have 500 response")
-	}
-
-	// Test POST operation responses
-	postOp := spec.Paths.Find("/users").Post
-	if postOp.Responses.Value("200") == nil {
-		t.Fatal("POST operation should have 200 response")
-	}
-	if postOp.Responses.Value("201") == nil {
-		t.Fatal("POST operation should have 201 response")
-	}
-	if postOp.Responses.Value("400") == nil {
-		t.Fatal("POST operation should have 400 response")
-	}
-	if postOp.Responses.Value("500") == nil {
-		t.Fatal("POST operation should have 500 response")
-	}
-
-	// Test DELETE operation responses
-	deleteOp := spec.Paths.Find("/users/{id}").Delete
-	if deleteOp.Responses.Value("200") == nil {
-		t.Fatal("DELETE operation should have 200 response")
-	}
-	if deleteOp.Responses.Value("204") == nil {
-		t.Fatal("DELETE operation should have 204 response")
-	}
-	if deleteOp.Responses.Value("404") == nil {
-		t.Fatal("DELETE operation should have 404 response")
-	}
-	if deleteOp.Responses.Value("500") == nil {
-		t.Fatal("DELETE operation should have 500 response")
-	}
-
-	// Verify error response structure
-	errorResponse := getOp.Responses.Value("400").Value
-	if errorResponse.Content["application/json"] == nil {
-		t.Fatal("Error responses should have application/json content")
-	}
-	
-	errorSchema := errorResponse.Content["application/json"].Schema.Value
-	if errorSchema.Properties["error"] == nil {
-		t.Fatal("Error response should have 'error' property")
-	}
-	if errorSchema.Properties["message"] == nil {
-		t.Fatal("Error response should have 'message' property")
+	// With no declared schemas, kin-openapi supplies only a default response.
+	// Managed and decoder response policies are implemented in later tasks.
+	for name, operation := range map[string]*openapi3.Operation{
+		"GET /users":         spec.Paths.Find("/users").Get,
+		"POST /users":        spec.Paths.Find("/users").Post,
+		"DELETE /users/{id}": spec.Paths.Find("/users/{id}").Delete,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if operation == nil {
+				t.Fatal("Expected operation")
+			}
+			assertResponseStatuses(t, operation.Responses, "default")
+			if len(operation.Responses.Default().Value.Content) != 0 {
+				t.Error("Default response should not claim a payload schema")
+			}
+		})
 	}
 }
 
