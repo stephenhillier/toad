@@ -10,11 +10,10 @@ import (
 )
 
 // These direct generic adapters connect the builder contracts to net/http.
-// Managed-error policies are implemented in Task 4.
 func decodeBody[B any](w http.ResponseWriter, r *http.Request, limit int64) (B, bool) {
 	var body B
 	fail := func(status int) (B, bool) {
-		http.Error(w, http.StatusText(status), status)
+		writeError(w, status, decoderErrorCode(status))
 		return body, false
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -49,22 +48,23 @@ func decodeBody[B any](w http.ResponseWriter, r *http.Request, limit int64) (B, 
 }
 func writeManaged[R any](w http.ResponseWriter, result R, err error, status int, mappings []errorMapping) {
 	if err != nil {
-		status = http.StatusInternalServerError
 		for _, mapping := range mappings {
 			if errors.Is(err, mapping.sentinel) {
-				status = mapping.status
-				break
+				writeError(w, mapping.status, CodeApplicationError)
+				return
 			}
 		}
-		http.Error(w, http.StatusText(status), status)
+		reportResponseError("unmatched handler error", err)
+		writeError(w, http.StatusInternalServerError, CodeInternalError)
 		return
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		reportResponseError("encode managed response", err)
+		writeError(w, http.StatusInternalServerError, CodeInternalError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(data)
+	if err := writeJSON(w, status, data); err != nil {
+		reportResponseError("write managed response", err)
+	}
 }

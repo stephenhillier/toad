@@ -263,9 +263,41 @@ func getJSONFieldName(field reflect.StructField) string {
 	return field.Name
 }
 
-// addResponses retains the baseline default plus the single managed success.
-// Decoder/error-envelope documentation and the final response policy are Task 5.
+// addResponses retains the baseline default until Task 5 and documents the
+// shared runtime envelope for every framework or mapped error status.
 func addResponses(operation *openapi3.Operation, route routeRecord) {
+	codes := make(map[int][]string)
+	addCode := func(status int, code string) {
+		for _, existing := range codes[status] {
+			if existing == code {
+				return
+			}
+		}
+		codes[status] = append(codes[status], code)
+	}
+	if route.bodyType != nil {
+		for _, status := range []int{400, 413, 415} {
+			addCode(status, decoderErrorCode(status))
+		}
+	}
+	if route.mode != ordinary {
+		addCode(500, CodeInternalError)
+		for _, mapping := range route.errors {
+			addCode(mapping.status, CodeApplicationError)
+		}
+	}
+	for status, values := range codes {
+		schema := createSchemaFromType(reflect.TypeFor[ErrorResponse]())
+		schema.Required = []string{"code", "message"}
+		for _, code := range values {
+			schema.Properties["code"].Value.Enum = append(schema.Properties["code"].Value.Enum, code)
+		}
+		schema.Properties["message"].Value.Enum = []any{publicError(status, values[0]).Message}
+		operation.Responses.Set(fmt.Sprintf("%d", status), &openapi3.ResponseRef{Value: &openapi3.Response{
+			Description: ptr(publicError(status, values[0]).Message),
+			Content:     openapi3.Content{"application/json": &openapi3.MediaType{Schema: &openapi3.SchemaRef{Value: schema}}},
+		}})
+	}
 	if route.mode == ordinary {
 		return
 	}

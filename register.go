@@ -1,6 +1,8 @@
 package buddy
 
 import (
+	"encoding"
+	"encoding/json"
 	"fmt"
 	"go/token"
 	"net/http"
@@ -67,6 +69,8 @@ type builderState struct {
 	mode                 responseMode
 }
 
+// NewApi creates a new Api ready for route registration.
+// It also registers GET /openapi.json and GET /docs on mux.
 func NewApi(mux *http.ServeMux) *Api {
 	if mux == nil {
 		panic("buddy: NewApi requires a non-nil ServeMux")
@@ -113,6 +117,9 @@ func (s builderState) response(mode responseMode, status int, t reflect.Type) bu
 		s.config.fail("managed responses require a JSON-bearing success status")
 	}
 	s.current()
+	if mode == explicitResponse {
+		s.config.validateResult(t)
+	}
 	s.config.record.mode, s.config.record.status, s.config.record.resultType = mode, status, t
 	s.mode, s.resultType = mode, t
 	return s
@@ -132,8 +139,11 @@ func (s builderState) addError(status int, sentinel error) {
 			s.config.fail("Error requires a non-nil sentinel")
 		}
 	}
+	if !v.Comparable() {
+		s.config.fail("Error requires a comparable sentinel for stable mapping identity")
+	}
 	for _, mapping := range s.config.record.errors {
-		if v.Comparable() && reflect.ValueOf(mapping.sentinel).Comparable() && reflect.TypeOf(mapping.sentinel) == v.Type() && mapping.sentinel == sentinel {
+		if mapping.sentinel == sentinel {
 			if mapping.status != status {
 				s.config.fail("the same error sentinel cannot map to conflicting statuses")
 			}
@@ -163,6 +173,9 @@ func (s builderState) finalize(makeHandler func(routeRecord) http.Handler, nilHa
 	if r.mode == inferredResponse {
 		r.resultType = resultType
 	}
+	if r.mode != ordinary {
+		c.validateResult(r.resultType)
+	}
 	r.errors = append([]errorMapping(nil), r.errors...)
 	for _, registered := range c.api.routes {
 		if pathTemplate(registered.path) == pathTemplate(r.path) && registered.path != r.path {
@@ -183,6 +196,16 @@ func (s builderState) finalize(makeHandler func(routeRecord) http.Handler, nilHa
 	}()
 	c.api.routes = append(c.api.routes, r)
 	c.finalized = true
+}
+func (c *routeConfig) validateResult(t reflect.Type) {
+	if t == nil || t.Kind() != reflect.Struct {
+		c.fail("managed responses require a struct-valued JSON model; nullable top-level results are unsupported")
+	}
+	for _, custom := range []reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[encoding.TextMarshaler]()} {
+		if t.Implements(custom) || reflect.PointerTo(t).Implements(custom) {
+			c.fail("managed response models with custom top-level marshaling are unsupported")
+		}
+	}
 }
 func parsePattern(pattern string) (string, string) {
 	fail := func(rule string) { panic(fmt.Sprintf("buddy: route %q: %s", pattern, rule)) }

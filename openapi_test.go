@@ -142,12 +142,6 @@ type UserResponse struct {
 	Email string `json:"email"`
 }
 
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message"`
-	Code    int    `json:"code"`
-}
-
 func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 	api := NewApi(http.NewServeMux())
 	api.Route("GET /users/{id}").Description("Get user by ID").Response(http.StatusOK, UserResponse{}).
@@ -169,7 +163,11 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 		{spec.Paths.Find("/users/{id}").Get, "200"},
 		{spec.Paths.Find("/users").Post, "201"},
 	} {
-		assertResponseStatuses(t, test.operation.Responses, "default", test.status)
+		statuses := []string{"default", test.status, "500"}
+		if test.operation.RequestBody != nil {
+			statuses = append(statuses, "400", "413", "415")
+		}
+		assertResponseStatuses(t, test.operation.Responses, statuses...)
 		content := test.operation.Responses.Value(test.status).Value.Content["application/json"]
 		if content == nil || content.Schema == nil {
 			t.Fatal("Expected JSON success schema")
