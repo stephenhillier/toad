@@ -125,14 +125,8 @@ func TestApiGenerate(t *testing.T) {
 		}
 	}
 
-	// Verify servers array exists
-	servers, ok := result["servers"].([]interface{})
-	if !ok {
-		t.Fatal("Expected 'servers' array in OpenAPI spec")
-	}
-
-	if len(servers) == 0 {
-		t.Fatal("Expected at least one server in OpenAPI spec")
+	if _, exists := result["servers"]; exists {
+		t.Error("Unconfigured servers should be omitted")
 	}
 }
 
@@ -163,7 +157,7 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 		{spec.Paths.Find("/users/{id}").Get, "200"},
 		{spec.Paths.Find("/users").Post, "201"},
 	} {
-		statuses := []string{"default", test.status, "500"}
+		statuses := []string{test.status, "500"}
 		if test.operation.RequestBody != nil {
 			statuses = append(statuses, "400", "413", "415")
 		}
@@ -282,8 +276,7 @@ func TestApiGenerateResponseSchemas(t *testing.T) {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
-	// With no declared schemas, kin-openapi supplies only a default response.
-	// Managed and decoder response policies are implemented in later tasks.
+	// Ordinary handlers define their own output; no success status is inferred.
 	for name, operation := range map[string]*openapi3.Operation{
 		"GET /users":         spec.Paths.Find("/users").Get,
 		"POST /users":        spec.Paths.Find("/users").Post,

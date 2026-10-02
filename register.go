@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/token"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"unicode"
@@ -17,6 +18,8 @@ type Api struct {
 	mux       *http.ServeMux
 	routes    []routeRecord
 	bodyLimit int64
+
+	title, description, version, server string
 }
 
 // DefaultBodyLimit is the maximum JSON request body size in bytes (1 MiB).
@@ -30,6 +33,43 @@ func (api *Api) BodyLimit(bytes int64) *Api {
 		panic("buddy: BodyLimit requires a positive byte limit")
 	}
 	api.bodyLimit = bytes
+	return api
+}
+
+// Title sets the OpenAPI title. Blank titles panic during startup.
+func (api *Api) Title(text string) *Api {
+	if strings.TrimSpace(text) == "" {
+		panic("buddy: Title requires non-blank text")
+	}
+	api.title = text
+	return api
+}
+
+// Description sets the OpenAPI description. Empty text clears it.
+func (api *Api) Description(text string) *Api {
+	api.description = text
+	return api
+}
+
+// Version sets the OpenAPI version. Blank versions panic during startup.
+func (api *Api) Version(text string) *Api {
+	if strings.TrimSpace(text) == "" {
+		panic("buddy: Version requires non-blank text")
+	}
+	api.version = text
+	return api
+}
+
+// Server replaces the single OpenAPI server URL. Relative URLs are supported;
+// an empty string clears the server. Configure metadata before serving requests.
+func (api *Api) Server(serverURL string) *Api {
+	if strings.IndexFunc(serverURL, unicode.IsSpace) >= 0 {
+		panic("buddy: Server requires a URL without whitespace")
+	}
+	if _, err := url.Parse(serverURL); err != nil {
+		panic(fmt.Sprintf("buddy: Server requires a valid URL: %v", err))
+	}
+	api.server = serverURL
 	return api
 }
 
@@ -75,7 +115,7 @@ func NewApi(mux *http.ServeMux) *Api {
 	if mux == nil {
 		panic("buddy: NewApi requires a non-nil ServeMux")
 	}
-	api := &Api{mux: mux, bodyLimit: DefaultBodyLimit}
+	api := &Api{mux: mux, bodyLimit: DefaultBodyLimit, title: "API Documentation", version: "1.0.0"}
 	api.mux.HandleFunc("GET /openapi.json", api.ServeDocs)
 	api.mux.HandleFunc("GET /docs", api.ServeDocsHTML)
 	return api

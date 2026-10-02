@@ -15,28 +15,40 @@ import (
 //go:embed static/scalar.html
 var ui embed.FS
 
+// Generate validates and serializes the OpenAPI document from finalized routes.
+// Unsupported model shapes return errors with route and field context.
 func (api *Api) Generate() ([]byte, error) {
 	// Create a new OpenAPI 3.0 document
 	doc := &openapi3.T{
 		OpenAPI: "3.0.0",
 		Info: &openapi3.Info{
-			Title:   "API Documentation",
-			Version: "1.0.0",
+			Title:       api.title,
+			Description: api.description,
+			Version:     api.version,
 		},
 		Paths: &openapi3.Paths{},
 		Components: &openapi3.Components{
 			Schemas: make(openapi3.Schemas),
 		},
-		Servers: []*openapi3.Server{
-			{
-				URL:         "http://localhost:8080",
-				Description: "Development server",
-			},
-		},
+	}
+	if api.server != "" {
+		doc.Servers = openapi3.Servers{&openapi3.Server{URL: api.server}}
 	}
 
 	// Convert routes to OpenAPI paths
 	for _, route := range api.routes {
+		for _, model := range []struct {
+			name string
+			typ  reflect.Type
+		}{
+			{"request body", route.bodyType}, {"response", route.resultType},
+		} {
+			if model.typ != nil {
+				if err := validateSchemaType(model.typ, make(map[reflect.Type]bool)); err != nil {
+					return nil, fmt.Errorf("buddy: route %q %s model %s: %w", route.method+" "+route.path, model.name, model.typ, err)
+				}
+			}
+		}
 		// Get or create path item
 		pathItem := doc.Paths.Value(route.path)
 		if pathItem == nil {
@@ -50,7 +62,7 @@ func (api *Api) Generate() ([]byte, error) {
 		operation := &openapi3.Operation{
 			Summary:     route.title,
 			Description: route.description,
-			Responses:   openapi3.NewResponses(),
+			Responses:   &openapi3.Responses{},
 		}
 
 		// Add a request body when a body type was selected
@@ -99,7 +111,7 @@ func (api *Api) Generate() ([]byte, error) {
 
 	// Validate the document
 	if err := doc.Validate(openapi3.NewLoader().Context); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("buddy: validate OpenAPI document: %w", err)
 	}
 
 	// Marshal to JSON
@@ -130,6 +142,41 @@ func extractPathParameters(path string) []string {
 	return params
 }
 
+// validateSchemaType bounds the inline schema walker and reports unsupported
+// shapes during generation, never during application-request dispatch.
+// Recursive components and richer JSON model support belong to the registry.
+func validateSchemaType(t reflect.Type, visiting map[reflect.Type]bool) error {
+	if visiting[t] {
+		return fmt.Errorf("recursive type %s requires reusable schema support", t)
+	}
+	visiting[t] = true
+	defer delete(visiting, t)
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		return validateSchemaType(t.Elem(), visiting)
+	case reflect.Map:
+		if t.Key().Kind() != reflect.String {
+			return fmt.Errorf("unsupported map key type %s", t.Key())
+		}
+		return validateSchemaType(t.Elem(), visiting)
+	case reflect.Struct:
+		for i := range t.NumField() {
+			field := t.Field(i)
+			if field.IsExported() {
+				if err := validateSchemaType(field.Type, visiting); err != nil {
+					return fmt.Errorf("field %s: %w", field.Name, err)
+				}
+			}
+		}
+		return nil
+	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Float32, reflect.Float64:
+		return nil
+	default:
+		return fmt.Errorf("unsupported schema type %s (%s)", t, t.Kind())
+	}
+}
+
 // createSchemaFromValue creates an OpenAPI schema from a Go value
 func createSchemaFromValue(value any) *openapi3.Schema {
 	if value == nil {
@@ -139,7 +186,7 @@ func createSchemaFromValue(value any) *openapi3.Schema {
 	}
 
 	t := reflect.TypeOf(value)
-	if t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 
@@ -200,7 +247,7 @@ func createSchemaFromValue(value any) *openapi3.Schema {
 
 // createSchemaFromType creates an OpenAPI schema from a reflect.Type
 func createSchemaFromType(t reflect.Type) *openapi3.Schema {
-	if t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 
@@ -263,8 +310,7 @@ func getJSONFieldName(field reflect.StructField) string {
 	return field.Name
 }
 
-// addResponses retains the baseline default until Task 5 and documents the
-// shared runtime envelope for every framework or mapped error status.
+// addResponses documents only the route contract, using the runtime error envelope.
 func addResponses(operation *openapi3.Operation, route routeRecord) {
 	codes := make(map[int][]string)
 	addCode := func(status int, code string) {
@@ -299,6 +345,9 @@ func addResponses(operation *openapi3.Operation, route routeRecord) {
 		}})
 	}
 	if route.mode == ordinary {
+		operation.Responses.Set("default", &openapi3.ResponseRef{Value: &openapi3.Response{
+			Description: ptr("Handler-defined response"),
+		}})
 		return
 	}
 	response := &openapi3.Response{

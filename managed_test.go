@@ -224,6 +224,7 @@ func TestErrorSchemaMergesDecoderAndApplicationCodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertResponseStatuses(t, doc.Paths.Value("/test").Post.Responses, "200", "400", "413", "415", "500")
 	for _, tc := range []struct {
 		body, content string
 		status        int
