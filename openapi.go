@@ -35,16 +35,20 @@ func (api *Api) Generate() ([]byte, error) {
 		doc.Servers = openapi3.Servers{&openapi3.Server{URL: api.server}}
 	}
 
-	// Convert routes to OpenAPI paths
+	registry := newSchemaRegistry(doc.Components.Schemas)
+	// Convert finalized types once, using one registry for the entire document.
 	for _, route := range api.routes {
-		for _, model := range []struct {
+		models := make([]*openapi3.SchemaRef, 2)
+		for i, model := range []struct {
 			name string
 			typ  reflect.Type
 		}{
 			{"request body", route.bodyType}, {"response", route.resultType},
 		} {
 			if model.typ != nil {
-				if err := validateSchemaType(model.typ, make(map[reflect.Type]bool)); err != nil {
+				var err error
+				models[i], err = registry.schema(model.typ)
+				if err != nil {
 					return nil, fmt.Errorf("buddy: route %q %s model %s: %w", route.method+" "+route.path, model.name, model.typ, err)
 				}
 			}
@@ -67,16 +71,14 @@ func (api *Api) Generate() ([]byte, error) {
 
 		// Add a request body when a body type was selected
 		if route.bodyType != nil {
-			bodySchema := createSchemaFromType(route.bodyType)
+			bodySchema := models[0]
 			operation.RequestBody = &openapi3.RequestBodyRef{
 				Value: &openapi3.RequestBody{
 					Description: "Request body",
 					Required:    true,
 					Content: openapi3.Content{
 						"application/json": &openapi3.MediaType{
-							Schema: &openapi3.SchemaRef{
-								Value: bodySchema,
-							},
+							Schema: bodySchema,
 						},
 					},
 				},
@@ -105,8 +107,12 @@ func (api *Api) Generate() ([]byte, error) {
 		}
 
 		// Add the selected managed success response
-		addResponses(operation, route)
+		addResponses(operation, route, registry, models[1])
 		pathItem.SetOperation(route.method, operation)
+	}
+
+	if err := registry.finish(); err != nil {
+		return nil, err
 	}
 
 	// Validate the document
@@ -142,176 +148,8 @@ func extractPathParameters(path string) []string {
 	return params
 }
 
-// validateSchemaType bounds the inline schema walker and reports unsupported
-// shapes during generation, never during application-request dispatch.
-// Recursive components and richer JSON model support belong to the registry.
-func validateSchemaType(t reflect.Type, visiting map[reflect.Type]bool) error {
-	if visiting[t] {
-		return fmt.Errorf("recursive type %s requires reusable schema support", t)
-	}
-	visiting[t] = true
-	defer delete(visiting, t)
-	switch t.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Array:
-		return validateSchemaType(t.Elem(), visiting)
-	case reflect.Map:
-		if t.Key().Kind() != reflect.String {
-			return fmt.Errorf("unsupported map key type %s", t.Key())
-		}
-		return validateSchemaType(t.Elem(), visiting)
-	case reflect.Struct:
-		for i := range t.NumField() {
-			field := t.Field(i)
-			if field.IsExported() {
-				if err := validateSchemaType(field.Type, visiting); err != nil {
-					return fmt.Errorf("field %s: %w", field.Name, err)
-				}
-			}
-		}
-		return nil
-	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Float32, reflect.Float64:
-		return nil
-	default:
-		return fmt.Errorf("unsupported schema type %s (%s)", t, t.Kind())
-	}
-}
-
-// createSchemaFromValue creates an OpenAPI schema from a Go value
-func createSchemaFromValue(value any) *openapi3.Schema {
-	if value == nil {
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"object"},
-		}
-	}
-
-	t := reflect.TypeOf(value)
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-
-	switch t.Kind() {
-	case reflect.String:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"string"},
-		}
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"integer"},
-		}
-	case reflect.Float32, reflect.Float64:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"number"},
-		}
-	case reflect.Bool:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"boolean"},
-		}
-	case reflect.Struct:
-		schema := &openapi3.Schema{
-			Type:       &openapi3.Types{"object"},
-			Properties: make(openapi3.Schemas),
-		}
-
-		for i := range t.NumField() {
-			field := t.Field(i)
-			if field.IsExported() {
-				fieldName := getJSONFieldName(field)
-				fieldSchema := createSchemaFromType(field.Type)
-				schema.Properties[fieldName] = &openapi3.SchemaRef{Value: fieldSchema}
-			}
-		}
-		return schema
-	case reflect.Slice, reflect.Array:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"array"},
-			Items: &openapi3.SchemaRef{
-				Value: createSchemaFromType(t.Elem()),
-			},
-		}
-	case reflect.Map:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"object"},
-			AdditionalProperties: openapi3.AdditionalProperties{
-				Schema: &openapi3.SchemaRef{
-					Value: createSchemaFromType(t.Elem()),
-				},
-			},
-		}
-	default:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"object"},
-		}
-	}
-}
-
-// createSchemaFromType creates an OpenAPI schema from a reflect.Type
-func createSchemaFromType(t reflect.Type) *openapi3.Schema {
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-
-	switch t.Kind() {
-	case reflect.String:
-		return &openapi3.Schema{Type: &openapi3.Types{"string"}}
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return &openapi3.Schema{Type: &openapi3.Types{"integer"}}
-	case reflect.Float32, reflect.Float64:
-		return &openapi3.Schema{Type: &openapi3.Types{"number"}}
-	case reflect.Bool:
-		return &openapi3.Schema{Type: &openapi3.Types{"boolean"}}
-	case reflect.Struct:
-		schema := &openapi3.Schema{
-			Type:       &openapi3.Types{"object"},
-			Properties: make(openapi3.Schemas),
-		}
-
-		for i := range t.NumField() {
-			field := t.Field(i)
-			if field.IsExported() {
-				fieldName := getJSONFieldName(field)
-				fieldSchema := createSchemaFromType(field.Type)
-				schema.Properties[fieldName] = &openapi3.SchemaRef{Value: fieldSchema}
-			}
-		}
-		return schema
-	case reflect.Slice, reflect.Array:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"array"},
-			Items: &openapi3.SchemaRef{
-				Value: createSchemaFromType(t.Elem()),
-			},
-		}
-	case reflect.Map:
-		return &openapi3.Schema{
-			Type: &openapi3.Types{"object"},
-			AdditionalProperties: openapi3.AdditionalProperties{
-				Schema: &openapi3.SchemaRef{
-					Value: createSchemaFromType(t.Elem()),
-				},
-			},
-		}
-	default:
-		return &openapi3.Schema{Type: &openapi3.Types{"object"}}
-	}
-}
-
-// getJSONFieldName gets the JSON field name from a struct field
-func getJSONFieldName(field reflect.StructField) string {
-	if jsonTag := field.Tag.Get("json"); jsonTag != "" {
-		if jsonTag == "-" {
-			return ""
-		}
-		if idx := regexp.MustCompile(",").FindStringIndex(jsonTag); idx != nil {
-			return jsonTag[:idx[0]]
-		}
-		return jsonTag
-	}
-	return field.Name
-}
-
 // addResponses documents only the route contract, using the runtime error envelope.
-func addResponses(operation *openapi3.Operation, route routeRecord) {
+func addResponses(operation *openapi3.Operation, route routeRecord, registry *schemaRegistry, success *openapi3.SchemaRef) {
 	codes := make(map[int][]string)
 	addCode := func(status int, code string) {
 		for _, existing := range codes[status] {
@@ -333,8 +171,13 @@ func addResponses(operation *openapi3.Operation, route routeRecord) {
 		}
 	}
 	for status, values := range codes {
-		schema := createSchemaFromType(reflect.TypeFor[ErrorResponse]())
-		schema.Required = []string{"code", "message"}
+		base, _ := registry.schema(reflect.TypeFor[ErrorResponse]()) // fixed, supported framework model
+		schema := openapi3.NewObjectSchema()
+		schema.AllOf = openapi3.SchemaRefs{base}
+		schema.Properties = openapi3.Schemas{
+			"code":    {Value: openapi3.NewStringSchema()},
+			"message": {Value: openapi3.NewStringSchema()},
+		}
 		for _, code := range values {
 			schema.Properties["code"].Value.Enum = append(schema.Properties["code"].Value.Enum, code)
 		}
@@ -353,7 +196,7 @@ func addResponses(operation *openapi3.Operation, route routeRecord) {
 	response := &openapi3.Response{
 		Description: ptr(getResponseDescription(route.status)),
 		Content: openapi3.Content{
-			"application/json": &openapi3.MediaType{Schema: &openapi3.SchemaRef{Value: createSchemaFromType(route.resultType)}},
+			"application/json": &openapi3.MediaType{Schema: success},
 		},
 	}
 	operation.Responses.Set(fmt.Sprintf("%d", route.status), &openapi3.ResponseRef{Value: response})

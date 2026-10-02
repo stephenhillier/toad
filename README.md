@@ -79,7 +79,7 @@ This sketch assumes application-defined `User`, `ErrNotFound`, and `lookupUser`.
 Managed results currently require a struct value, including a valid zero value.
 Top-level pointers, interfaces, collections, scalars, and custom JSON/text
 marshalers are rejected during setup; nil results are therefore unsupported.
-Nested model/schema support is being completed in Task 6. Success statuses are
+Nested models follow the schema rules below. Success statuses are
 200–299 except 204 and 205; use an ordinary handler for bodyless responses.
 
 A returned error takes precedence over the model. `Error(status, sentinel)`
@@ -99,7 +99,7 @@ Codes are `invalid_body` (400), `body_too_large` (413),
 `internal_error` (unmatched errors or serialization failures, 500). Messages use
 HTTP status text, or "Request failed" for an unrecognized status. Sentinel text
 and wrapped context are never exposed. OpenAPI merges codes sharing a status
-into one envelope schema. The remaining response policy work is in Task 5.
+into one envelope schema.
 
 Buddy finishes encoding before committing success headers. Unmatched errors,
 encoding failures, and post-commit write failures are logged through the default
@@ -137,3 +137,21 @@ To run only the stdlib baseline:
 ```sh
 go test -run '^$' -bench '^BenchmarkCreateUserRequestHandling$/Stdlib' -benchmem -count=5
 ```
+
+## Model schemas
+
+`Generate()` shares named Go models through OpenAPI components, including nested
+and recursive models. Requests and explicit/inferred responses use the same
+registry. Distinct types with the same name receive deterministic name suffixes.
+
+Exported fields honor JSON names, `json:"-"`, empty names, `omitempty`, `omitzero`,
+and scalar `,string` encoding. Missing fields remain application validation:
+individual model fields are not marked required. Pointers, slices, and maps are
+nullable; arrays and struct values are not. Byte slices are base64 strings.
+String-keyed maps and ordinary scalar types are supported.
+
+Generation returns contextual errors for non-ignored embedded fields, duplicate
+JSON field names, custom JSON/text encoding methods (including `time.Time` and
+`json.RawMessage`), interfaces, non-string map keys, and unsupported kinds.
+Schema overrides are deferred. See [the schema design](plans/API_DESIGN.md#openapi-and-reusable-schemas)
+for naming and representation details.

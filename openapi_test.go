@@ -146,8 +146,8 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var spec openapi3.T
-	if err := json.Unmarshal(data, &spec); err != nil {
+	spec, err := openapi3.NewLoader().LoadFromData(data)
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
@@ -202,8 +202,7 @@ func TestApiGenerateWithRequestBodySchemas(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	var spec openapi3.T
-	err = json.Unmarshal(data, &spec)
+	spec, err := openapi3.NewLoader().LoadFromData(data)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
@@ -270,8 +269,7 @@ func TestApiGenerateResponseSchemas(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	var spec openapi3.T
-	err = json.Unmarshal(data, &spec)
+	spec, err := openapi3.NewLoader().LoadFromData(data)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}

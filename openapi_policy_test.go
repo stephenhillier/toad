@@ -177,7 +177,6 @@ func TestOpenAPIMetadataAndDocs(t *testing.T) {
 }
 
 func TestOpenAPIUnsupportedModels(t *testing.T) {
-	type recursive struct{ Next *recursive }
 	for _, tc := range []struct {
 		name, detail string
 		register     func(*Api)
@@ -192,9 +191,6 @@ func TestOpenAPIUnsupportedModels(t *testing.T) {
 			api.Route("POST /bad").Status(201).HandlerFunc(func(*http.Request) (struct{ Values map[int]string }, error) {
 				return struct{ Values map[int]string }{}, nil
 			})
-		}},
-		{"recursive", "recursive type", func(api *Api) {
-			api.Route("POST /bad").Status(201).HandlerFunc(func(*http.Request) (recursive, error) { return recursive{}, nil })
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
