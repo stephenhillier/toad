@@ -2,12 +2,14 @@ package buddy
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -99,7 +101,14 @@ func TestRequiredJSONBody(t *testing.T) {
 					req := httptest.NewRequest("POST", "/body", strings.NewReader(test.body))
 					req.Header.Set("Content-Type", test.contentType)
 					rr := httptest.NewRecorder()
-					api.mux.ServeHTTP(rr, req)
+					middleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("X-Middleware", "present")
+						api.mux.ServeHTTP(w, r)
+					})
+					middleware.ServeHTTP(rr, req)
+					if rr.Header().Get("X-Middleware") != "present" {
+						t.Fatal("response lost middleware headers")
+					}
 					if rr.Code != test.status {
 						t.Fatalf("status = %d, want %d; %s", rr.Code, test.status, rr.Body)
 					}
@@ -223,5 +232,60 @@ func TestJSONBodyReadFailure(t *testing.T) {
 				t.Fatalf("read failure: %d %s", rr.Code, rr.Body)
 			}
 		}
+	}
+}
+
+// Keep all decoded bodies alive and mutate their reference-valued fields in
+// parallel. Reusing a body, map, slice, or pointer across requests must fail
+// either these value assertions or the race detector.
+func TestJSONBodyConcurrentIsolation(t *testing.T) {
+	for _, mode := range bodyModes {
+		t.Run(mode, func(t *testing.T) {
+			const requests = 32
+			api := NewApi(http.NewServeMux())
+			received := make(chan decoderInput, requests)
+			registerDecoderRoute(api, mode, func(body decoderInput) { received <- body })
+			var serving sync.WaitGroup
+			for id := range requests {
+				serving.Go(func() {
+					data := fmt.Sprintf(`{"count":%d,"labels":{"x":%d},"values":[%d],"nested":{"value":%d}}`, id, id, id, id)
+					req := httptest.NewRequest("POST", "/body", strings.NewReader(data))
+					req.Header.Set("Content-Type", "application/json")
+					rr := httptest.NewRecorder()
+					api.mux.ServeHTTP(rr, req)
+					if rr.Code != 201 {
+						t.Errorf("request %d: %d %s", id, rr.Code, rr.Body)
+					}
+				})
+			}
+			serving.Wait()
+			close(received)
+			bodies := make([]decoderInput, 0, requests)
+			seen := make(map[int]bool)
+			for body := range received {
+				id := body.Count
+				if seen[id] || body.Labels["x"] != id || len(body.Values) != 1 || body.Values[0] != id || body.Nested == nil || body.Nested.Value != id {
+					t.Fatalf("shared or incorrect request state: %+v", body)
+				}
+				seen[id] = true
+				bodies = append(bodies, body)
+			}
+			if len(bodies) != requests {
+				t.Fatalf("received %d bodies, want %d", len(bodies), requests)
+			}
+			var mutations sync.WaitGroup
+			for _, body := range bodies {
+				mutations.Go(func() {
+					body.Labels["x"], body.Values[0], body.Nested.Value = body.Count+100, body.Count+100, body.Count+100
+				})
+			}
+			mutations.Wait()
+			for _, body := range bodies {
+				want := body.Count + 100
+				if body.Labels["x"] != want || body.Values[0] != want || body.Nested.Value != want {
+					t.Fatalf("mutation leaked between requests: %+v", body)
+				}
+			}
+		})
 	}
 }

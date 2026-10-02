@@ -113,9 +113,9 @@ untouched; write errors occur after commitment. Ordinary handlers retain respons
 ownership. See [the implementation plan](plans/01-poc.md) and
 [API design](plans/API_DESIGN.md) for scope and deferred features.
 
-The end-to-end test in `managed_e2e_test.go` exercises a `Body` / `Response` /
-`Error` route over HTTP and validates the served OpenAPI document and response
-payloads. Run it and its request-handling benchmark with:
+The end-to-end test in `managed_e2e_test.go` exercises both explicit `Response`
+and inferred `Status` routes with `Body` and `Error` over HTTP, validating the
+served OpenAPI document and response payloads. Run it and its request-handling benchmark with:
 
 ```sh
 go test -run '^TestCreateUserEndToEnd$' ./...
@@ -131,6 +131,22 @@ handling, including JSON decoding and encoding in its handler. Both implementati
 the same application function, payloads, 128-byte body limit, decoding rules,
 error envelopes, and encode-before-commit behavior. A parity test checks their
 status codes, headers, and payloads across successful and invalid requests.
+
+A five-run sample on 2026-10-01 (Go 1.27.1, linux/amd64, Ryzen 7 5700X)
+measured median times of 1,588 ns/op for Buddy and 1,575 ns/op for stdlib
+(about 0.8% overhead), both at 1,147 B/op and 11 allocs/op. The timing ranges
+overlapped (Buddy 1,554–1,609; stdlib 1,571–1,611 ns/op); this small successful
+request benchmark is not evidence of a significant performance difference or
+representative of every workload.
+
+The full contract suite includes compiler checks for accepted/rejected handler
+signatures and concurrent isolation checks for nested request data:
+
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
+```
 
 To run only the stdlib baseline:
 

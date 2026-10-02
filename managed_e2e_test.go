@@ -37,19 +37,29 @@ func createUser(_ *http.Request, body createUserRequest) (createdUser, error) {
 // Share the exact route and application handler between the HTTP test and the
 // benchmark. The handler is deterministic and has no growing store or I/O.
 func newCreateUserHandler() http.Handler {
+	return newCreateUserHandlerMode(false)
+}
+
+func newCreateUserHandlerMode(inferred bool) http.Handler {
 	mux := http.NewServeMux()
 	api := buddy.NewApi(mux).BodyLimit(128)
-	api.Route("POST /users").
-		Description("Create a user").
-		Body(createUserRequest{}).
-		Response(http.StatusCreated, createdUser{}).
-		Error(http.StatusConflict, errNameTaken).
-		HandlerFunc(createUser)
+	route := api.Route("POST /users").Description("Create a user").Body(createUserRequest{})
+	if inferred {
+		route.Status(http.StatusCreated).Error(http.StatusConflict, errNameTaken).HandlerFunc(createUser)
+	} else {
+		route.Response(http.StatusCreated, createdUser{}).Error(http.StatusConflict, errNameTaken).HandlerFunc(createUser)
+	}
 	return mux
 }
 
 func TestCreateUserEndToEnd(t *testing.T) {
-	server := httptest.NewServer(newCreateUserHandler())
+	for _, inferred := range []bool{false, true} {
+		t.Run("inferred="+strconv.FormatBool(inferred), func(t *testing.T) { testCreateUserEndToEnd(t, inferred) })
+	}
+}
+
+func testCreateUserEndToEnd(t *testing.T, inferred bool) {
+	server := httptest.NewServer(newCreateUserHandlerMode(inferred))
 	t.Cleanup(server.Close)
 	client := server.Client()
 

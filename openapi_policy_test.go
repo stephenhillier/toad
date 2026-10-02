@@ -1,7 +1,7 @@
 package buddy
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -140,8 +140,11 @@ func TestOpenAPIMetadataAndDocs(t *testing.T) {
 			if rr.Header().Get("Content-Type") != "application/json" {
 				t.Fatal("wrong OpenAPI content type")
 			}
-			var served openapi3.T
-			if err := json.Unmarshal(rr.Body.Bytes(), &served); err != nil {
+			served, err := openapi3.NewLoader().LoadFromData(rr.Body.Bytes())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := served.Validate(context.Background()); err != nil {
 				t.Fatal(err)
 			}
 			if served.Info.Title != doc.Info.Title || served.Paths.Len() != 1 {
