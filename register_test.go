@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"net/http"

@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func generatedDocument(t *testing.T, api *Api) *openapi3.T {
 }
 
 func TestOpenAPIResponsePolicy(t *testing.T) {
-	for _, mode := range []string{"ordinary", "explicit", "inferred"} {
+	for _, mode := range []string{"ordinary", "explicit"} {
 		for _, body := range []bool{false, true} {
 			name := mode
 			if body {
@@ -50,13 +50,6 @@ func TestOpenAPIResponsePolicy(t *testing.T) {
 					}
 				case "explicit":
 					b := route.Response(201, User{ID: 99}).Error(409, sentinel).Error(409, errors.New("another conflict"))
-					if body {
-						b.Body(CreateUserRequest{}).HandlerFunc(bodyHandler)
-					} else {
-						b.HandlerFunc(handler)
-					}
-				case "inferred":
-					b := route.Status(201).Error(409, sentinel).Error(409, errors.New("another conflict"))
 					if body {
 						b.Body(CreateUserRequest{}).HandlerFunc(bodyHandler)
 					} else {
@@ -171,7 +164,7 @@ func TestOpenAPIMetadataAndDocs(t *testing.T) {
 		{"Server", func() { api.Server("https://example.com/has space") }},
 		{"Server", func() { api.Server("https://[invalid") }},
 	} {
-		requireRoutePanic(t, "buddy:", tc.name, tc.call)
+		requireRoutePanic(t, "toad:", tc.name, tc.call)
 	}
 	doc = generatedDocument(t, api)
 	if doc.Info.Title != "Users API" || doc.Info.Version != "2026.10" || len(doc.Servers) != 0 {
@@ -190,8 +183,8 @@ func TestOpenAPIUnsupportedModels(t *testing.T) {
 		{"explicit", "field Value: unsupported schema type", func(api *Api) {
 			api.Route("POST /bad").Response(201, struct{ Value func() }{}).HandlerFunc(func(*http.Request) (struct{ Value func() }, error) { return struct{ Value func() }{}, nil })
 		}},
-		{"inferred", "unsupported map key type", func(api *Api) {
-			api.Route("POST /bad").Status(201).HandlerFunc(func(*http.Request) (struct{ Values map[int]string }, error) {
+		{"map response", "unsupported map key type", func(api *Api) {
+			api.Route("POST /bad").Response(201, struct{ Values map[int]string }{}).HandlerFunc(func(*http.Request) (struct{ Values map[int]string }, error) {
 				return struct{ Values map[int]string }{}, nil
 			})
 		}},

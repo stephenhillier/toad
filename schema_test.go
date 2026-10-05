@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"bytes"
@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/stephenhillier/buddy/internal/schematest/first"
-	"github.com/stephenhillier/buddy/internal/schematest/second"
+	"github.com/stephenhillier/toad/internal/schematest/first"
+	"github.com/stephenhillier/toad/internal/schematest/second"
 )
 
 type schemaNode struct {
@@ -25,7 +25,7 @@ func TestSchemaReuseAndRecursion(t *testing.T) {
 	api := NewApi(http.NewServeMux())
 	api.Route("POST /nodes").Body(schemaNode{}).Response(201, schemaNode{}).
 		HandlerFunc(func(_ *http.Request, body schemaNode) (schemaNode, error) { return body, nil })
-	api.Route("GET /nodes").Status(200).HandlerFunc(func(*http.Request) (schemaNode, error) { return schemaNode{}, nil })
+	api.Route("GET /nodes").Response(200, schemaNode{}).HandlerFunc(func(*http.Request) (schemaNode, error) { return schemaNode{}, nil })
 	doc := generatedDocument(t, api)
 	if len(doc.Components.Schemas) != 2 {
 		t.Fatalf("components: %v", doc.Components.Schemas)
@@ -102,7 +102,7 @@ type schemaTags struct {
 
 func TestSchemaJSONFieldsAndNullability(t *testing.T) {
 	api := NewApi(http.NewServeMux())
-	api.Route("POST /tags").Body(schemaTags{}).Status(200).HandlerFunc(func(_ *http.Request, b schemaTags) (schemaTags, error) { return b, nil })
+	api.Route("POST /tags").Body(schemaTags{}).Response(200, schemaTags{}).HandlerFunc(func(_ *http.Request, b schemaTags) (schemaTags, error) { return b, nil })
 	doc := generatedDocument(t, api)
 	schema := doc.Components.Schemas["schemaTags"].Value
 	want := []string{"renamed", "Default", "Zero", "-", "Invalid", "count", "quoted", "bytes", "array", "values", "nested"}
@@ -147,10 +147,10 @@ func TestSchemaComponentNameCollisions(t *testing.T) {
 	build := func(reverse bool) *openapi3.T {
 		api := NewApi(http.NewServeMux())
 		a := func() {
-			api.Route("GET /a").Status(200).HandlerFunc(func(*http.Request) (first.Model, error) { return first.Model{}, nil })
+			api.Route("GET /a").Response(200, first.Model{}).HandlerFunc(func(*http.Request) (first.Model, error) { return first.Model{}, nil })
 		}
 		b := func() {
-			api.Route("GET /b").Status(200).HandlerFunc(func(*http.Request) (second.Model, error) { return second.Model{}, nil })
+			api.Route("GET /b").Response(200, second.Model{}).HandlerFunc(func(*http.Request) (second.Model, error) { return second.Model{}, nil })
 		}
 		if reverse {
 			b()
@@ -227,7 +227,7 @@ func TestSchemaNamedContainersAndMutualRecursion(t *testing.T) {
 		A      schemaMutualA
 	}
 	api := NewApi(http.NewServeMux())
-	api.Route("GET /models").Status(200).HandlerFunc(func(*http.Request) (model, error) { return model{}, nil })
+	api.Route("GET /models").Response(200, model{}).HandlerFunc(func(*http.Request) (model, error) { return model{}, nil })
 	doc := generatedDocument(t, api)
 	schema := doc.Components.Schemas["model"].Value
 	for _, value := range []model{{}, {List: schemaList{nil, {}}, Map: schemaMap{"key": nil}, Scalar: 12}} {

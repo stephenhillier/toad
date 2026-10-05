@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"context"
@@ -51,11 +51,11 @@ func TestRoutingMetadataIntegration(t *testing.T) {
 		case 0:
 			route.Response(200, output{ID: "prototype"}).HandlerFunc(managed)
 		case 1:
-			route.Body(input{Name: "prototype"}).Status(201).HandlerFunc(managedBody)
+			route.Body(input{Name: "prototype"}).Response(201, output{}).HandlerFunc(managedBody)
 		case 2:
 			route.Response(202, output{}).Body(input{}).HandlerFunc(managedBody)
 		case 3:
-			route.Status(203).HandlerFunc(managed)
+			route.Response(203, output{}).HandlerFunc(managed)
 		case 4:
 			route.Body(input{}).HandlerFunc(func(w http.ResponseWriter, r *http.Request, body input) {
 				checkRequest(r)

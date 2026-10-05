@@ -1,4 +1,4 @@
-package buddy_test
+package toad_test
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/stephenhillier/buddy"
+	"github.com/stephenhillier/toad"
 )
 
 type createUserRequest struct {
@@ -37,34 +37,20 @@ func createUser(_ *http.Request, body createUserRequest) (createdUser, error) {
 // Share the exact route and application handler between the HTTP test and the
 // benchmark. The handler is deterministic and has no growing store or I/O.
 func newCreateUserHandler() http.Handler {
-	return newCreateUserHandlerMode(false)
-}
-
-func newCreateUserHandlerMode(inferred bool) http.Handler {
 	mux := http.NewServeMux()
-	api := buddy.NewApi(mux).BodyLimit(128)
+	api := toad.NewApi(mux).BodyLimit(128)
 	route := api.Route("POST /users").Description("Create a user").Body(createUserRequest{})
-	if inferred {
-		route.Status(http.StatusCreated).Error(http.StatusConflict, errNameTaken).HandlerFunc(createUser)
-	} else {
-		route.Response(http.StatusCreated, createdUser{}).Error(http.StatusConflict, errNameTaken).HandlerFunc(createUser)
-	}
+	route.Response(http.StatusCreated, createdUser{}).Error(http.StatusConflict, errNameTaken).HandlerFunc(createUser)
 	return mux
 }
 
 func TestCreateUserEndToEnd(t *testing.T) {
-	for _, inferred := range []bool{false, true} {
-		t.Run("inferred="+strconv.FormatBool(inferred), func(t *testing.T) { testCreateUserEndToEnd(t, inferred) })
-	}
-}
-
-func testCreateUserEndToEnd(t *testing.T, inferred bool) {
-	server := httptest.NewServer(newCreateUserHandlerMode(inferred))
+	server := httptest.NewServer(newCreateUserHandler())
 	t.Cleanup(server.Close)
 	client := server.Client()
 
 	// Retrieve the public document over HTTP, resolve its schemas, and validate
-	// the complete OpenAPI document independently of Buddy's Generate method.
+	// the complete OpenAPI document independently of Toad's Generate method.
 	response, err := client.Get(server.URL + "/openapi.json")
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +178,7 @@ func BenchmarkCreateUserRequestHandling(b *testing.B) {
 		name       string
 		newHandler func() http.Handler
 	}{
-		{"Buddy", newCreateUserHandler},
+		{"Toad", newCreateUserHandler},
 		{"Stdlib", newStdlibCreateUserHandler},
 	} {
 		b.Run(implementation.name, func(b *testing.B) {
@@ -210,7 +196,7 @@ func BenchmarkCreateUserRequestHandling(b *testing.B) {
 	}
 }
 
-// Both Buddy and the stdlib-only baseline use this harness with their mux.
+// Both Toad and the stdlib-only baseline use this harness with their mux.
 // Route registration, request/recorder allocation, network transport, and OpenAPI
 // generation are excluded. Each iteration measures ServeHTTP plus lightweight
 // resets of reusable request/response buffers. Routing, body validation/decoding,

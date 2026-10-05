@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"errors"
@@ -78,7 +78,6 @@ func TestUnfinishedAndSharedBuilderState(t *testing.T) {
 		"copied description": func() { copied.Description("changed") },
 		"old body":           func() { old.Body(User{}) },
 		"new response":       func() { body.Response(200, User{}) },
-		"new status":         func() { body.Status(200) },
 		"old terminal":       func() { old.HandlerFunc(noopHandler) },
 		"body terminal":      func() { body.HandlerFunc(func(http.ResponseWriter, *http.Request, CreateUserRequest) {}) },
 	} {
@@ -90,7 +89,7 @@ func TestUnfinishedAndSharedBuilderState(t *testing.T) {
 }
 
 func TestTypedManagedFinalization(t *testing.T) {
-	for _, order := range []string{"explicit-body", "body-explicit", "inferred-body", "body-inferred", "explicit", "inferred"} {
+	for _, order := range []string{"explicit-body", "body-explicit", "explicit"} {
 		t.Run(order, func(t *testing.T) {
 			api := NewApi(http.NewServeMux())
 			route := api.Route("POST /users")
@@ -101,14 +100,8 @@ func TestTypedManagedFinalization(t *testing.T) {
 				route.Response(201, User{ID: 999}).Error(404, sentinel).Body(CreateUserRequest{}).Title("Create").Description("Long description").HandlerFunc(handler)
 			case "body-explicit":
 				route.Body(CreateUserRequest{}).Response(201, User{}).Title("Create").Description("Long description").Error(404, sentinel).HandlerFunc(handler)
-			case "inferred-body":
-				route.Status(201).Error(404, sentinel).Body(CreateUserRequest{}).Title("Create").Description("Long description").HandlerFunc(handler)
-			case "body-inferred":
-				route.Body(CreateUserRequest{}).Status(201).Title("Create").Description("Long description").Error(404, sentinel).HandlerFunc(handler)
 			case "explicit":
 				route.Response(201, User{ID: 999}).Title("Create").Description("Long description").Error(404, sentinel).HandlerFunc(func(r *http.Request) (User, error) { return User{ID: 7}, nil })
-			case "inferred":
-				route.Status(201).Title("Create").Description("Long description").Error(404, sentinel).HandlerFunc(func(r *http.Request) (User, error) { return User{ID: 7}, nil })
 			}
 			r := api.routes[0]
 			if r.resultType != reflect.TypeFor[User]() || r.status != 201 || r.title != "Create" || r.description != "Long description" || len(r.errors) != 1 || r.errors[0].sentinel != sentinel {
@@ -138,7 +131,7 @@ func TestTypedManagedFinalization(t *testing.T) {
 				t.Fatalf("Generated operation differs from configuration: %+v", op)
 			}
 			if op.Responses.Value("201").Value.Content["application/json"].Schema.Value.Properties["id"] == nil {
-				t.Fatal("Missing declared/inferred response schema")
+				t.Fatal("Missing declared response schema")
 			}
 			requireRoutePanic(t, "POST /users", "already been finalized", func() { route.Description("changed") })
 		})
@@ -150,14 +143,9 @@ func TestSingleUseSelectorsAndObsoleteBuilders(t *testing.T) {
 		"body twice":                       func(b *RouteBuilder) { b.Body(User{}).Body(User{}) },
 		"body through old state":           func(b *RouteBuilder) { b.Body(User{}); b.Body(CreateUserRequest{}) },
 		"response twice":                   func(b *RouteBuilder) { b.Response(200, User{}).Response(201, User{}) },
-		"status twice":                     func(b *RouteBuilder) { b.Status(200).Status(200) },
-		"response then status":             func(b *RouteBuilder) { b.Response(200, User{}).Status(201) },
-		"status then response":             func(b *RouteBuilder) { b.Status(200).Response(201, User{}) },
-		"selector through old state":       func(b *RouteBuilder) { b.Status(200); b.Response(200, User{}) },
+		"selector through old state":       func(b *RouteBuilder) { b.Response(200, User{}); b.Response(200, User{}) },
 		"body response twice":              func(b *RouteBuilder) { b.Body(User{}).Response(200, User{}).Response(201, User{}) },
-		"body status twice":                func(b *RouteBuilder) { b.Body(User{}).Status(200).Status(201) },
 		"obsolete ordinary after response": func(b *RouteBuilder) { b.Response(200, User{}); b.HandlerFunc(noopHandler) },
-		"obsolete ordinary after status":   func(b *RouteBuilder) { b.Status(200); b.HandlerFunc(noopHandler) },
 		"obsolete body after response": func(b *RouteBuilder) {
 			old := b.Body(User{})
 			old.Response(200, User{})
@@ -168,17 +156,12 @@ func TestSingleUseSelectorsAndObsoleteBuilders(t *testing.T) {
 			old.Body(User{})
 			old.HandlerFunc(func(*http.Request) (User, error) { return User{}, nil })
 		},
-		"obsolete status after body": func(b *RouteBuilder) {
-			old := b.Status(200)
-			old.Body(User{})
-			old.HandlerFunc(func(*http.Request) (User, error) { return User{}, nil })
-		},
 	}
 	for name, call := range tests {
 		t.Run(name, func(t *testing.T) {
 			api := NewApi(http.NewServeMux())
 			b := api.Route("POST /test")
-			requireRoutePanic(t, "POST /test", "buddy:", func() { call(b) })
+			requireRoutePanic(t, "POST /test", "toad:", func() { call(b) })
 			if len(api.routes) != 0 || b.config.finalized {
 				t.Fatal("Invalid selection or obsolete terminal finalized metadata")
 			}
@@ -195,7 +178,7 @@ func TestFailedRegistrationPublishesNothing(t *testing.T) {
 			api.Route("GET /duplicate").HandlerFunc(noopHandler)
 			api.Route("GET /users/{id}").HandlerFunc(noopHandler)
 			route := api.Route(pattern)
-			requireRoutePanic(t, pattern, "buddy:", func() { route.HandlerFunc(noopHandler) })
+			requireRoutePanic(t, pattern, "toad:", func() { route.HandlerFunc(noopHandler) })
 			if len(api.routes) != 2 || route.config.finalized {
 				t.Fatal("Failed registration published metadata or finalized the builder")
 			}
@@ -216,7 +199,7 @@ func TestFailedRegistrationPublishesNothing(t *testing.T) {
 func TestManagedSnapshotAndErrorOrder(t *testing.T) {
 	api := NewApi(http.NewServeMux())
 	first, second := errors.New("first"), errors.New("second")
-	b := api.Route("GET /test").Status(200).Error(409, first).Error(404, second)
+	b := api.Route("GET /test").Response(200, User{}).Error(409, first).Error(404, second)
 	b.HandlerFunc(func(*http.Request) (User, error) { return User{}, first })
 	record := api.routes[0]
 	if record.errors[0].sentinel != first || record.errors[1].sentinel != second {
@@ -252,12 +235,12 @@ func TestConfigurationValidationBeforeMutation(t *testing.T) {
 		t.Fatal("Invalid body changed configuration")
 	}
 	for _, status := range []int{0, 199, 204, 205, 300, 600} {
-		requireRoutePanic(t, "POST /test", "success status", func() { b.Status(status) })
+		requireRoutePanic(t, "POST /test", "success status", func() { b.Response(status, User{}) })
 	}
 	if b.config.record.mode != ordinary {
 		t.Fatal("Invalid status selected a managed mode")
 	}
-	managed := b.Status(201)
+	managed := b.Response(201, User{})
 	requireRoutePanic(t, "POST /test", "non-nil sentinel", func() { managed.Error(400, nil) })
 	requireRoutePanic(t, "POST /test", "error status", func() { managed.Error(200, errors.New("bad")) })
 	first := errors.New("first")
@@ -302,26 +285,6 @@ func TestNilHandlerAndRepeatedFinalizationInEveryState(t *testing.T) {
 		},
 		"body explicit": func(b *RouteBuilder) func(bool) {
 			typed := b.Body(CreateUserRequest{}).Response(200, User{})
-			return func(valid bool) {
-				var handler func(*http.Request, CreateUserRequest) (User, error)
-				if valid {
-					handler = func(*http.Request, CreateUserRequest) (User, error) { return User{}, nil }
-				}
-				typed.HandlerFunc(handler)
-			}
-		},
-		"inferred": func(b *RouteBuilder) func(bool) {
-			typed := b.Status(200)
-			return func(valid bool) {
-				var handler func(*http.Request) (User, error)
-				if valid {
-					handler = func(*http.Request) (User, error) { return User{}, nil }
-				}
-				typed.HandlerFunc(handler)
-			}
-		},
-		"body inferred": func(b *RouteBuilder) func(bool) {
-			typed := b.Status(200).Body(CreateUserRequest{})
 			return func(valid bool) {
 				var handler func(*http.Request, CreateUserRequest) (User, error)
 				if valid {

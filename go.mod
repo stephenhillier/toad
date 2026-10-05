@@ -1,4 +1,4 @@
-module github.com/stephenhillier/buddy
+module github.com/stephenhillier/toad
 
 go 1.27
 

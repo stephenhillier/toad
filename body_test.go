@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"errors"
@@ -25,7 +25,7 @@ type decoderNested struct {
 	Value int `json:"value"`
 }
 
-var bodyModes = []string{"ordinary", "explicit-body", "body-explicit", "inferred-body", "body-inferred"}
+var bodyModes = []string{"ordinary", "explicit-body", "body-explicit"}
 
 func registerDecoderRoute(api *Api, mode string, receive func(decoderInput)) {
 	prototype := decoderInput{Name: "prototype", Labels: map[string]int{"prototype": 1}}
@@ -44,10 +44,6 @@ func registerDecoderRoute(api *Api, mode string, receive func(decoderInput)) {
 		route.Response(201, decoderInput{}).Body(prototype).HandlerFunc(managed)
 	case "body-explicit":
 		route.Body(prototype).Response(201, decoderInput{}).HandlerFunc(managed)
-	case "inferred-body":
-		route.Status(201).Body(prototype).HandlerFunc(managed)
-	case "body-inferred":
-		route.Body(prototype).Status(201).HandlerFunc(managed)
 	}
 }
 

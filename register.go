@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"encoding"
@@ -30,7 +30,7 @@ const DefaultBodyLimit int64 = 1 << 20
 // registered both before and after this call. Non-positive limits panic.
 func (api *Api) BodyLimit(bytes int64) *Api {
 	if bytes <= 0 {
-		panic("buddy: BodyLimit requires a positive byte limit")
+		panic("toad: BodyLimit requires a positive byte limit")
 	}
 	api.bodyLimit = bytes
 	return api
@@ -39,7 +39,7 @@ func (api *Api) BodyLimit(bytes int64) *Api {
 // Title sets the OpenAPI title. Blank titles panic during startup.
 func (api *Api) Title(text string) *Api {
 	if strings.TrimSpace(text) == "" {
-		panic("buddy: Title requires non-blank text")
+		panic("toad: Title requires non-blank text")
 	}
 	api.title = text
 	return api
@@ -54,7 +54,7 @@ func (api *Api) Description(text string) *Api {
 // Version sets the OpenAPI version. Blank versions panic during startup.
 func (api *Api) Version(text string) *Api {
 	if strings.TrimSpace(text) == "" {
-		panic("buddy: Version requires non-blank text")
+		panic("toad: Version requires non-blank text")
 	}
 	api.version = text
 	return api
@@ -64,10 +64,10 @@ func (api *Api) Version(text string) *Api {
 // an empty string clears the server. Configure metadata before serving requests.
 func (api *Api) Server(serverURL string) *Api {
 	if strings.IndexFunc(serverURL, unicode.IsSpace) >= 0 {
-		panic("buddy: Server requires a URL without whitespace")
+		panic("toad: Server requires a URL without whitespace")
 	}
 	if _, err := url.Parse(serverURL); err != nil {
-		panic(fmt.Sprintf("buddy: Server requires a valid URL: %v", err))
+		panic(fmt.Sprintf("toad: Server requires a valid URL: %v", err))
 	}
 	api.server = serverURL
 	return api
@@ -78,7 +78,6 @@ type responseMode uint8
 const (
 	ordinary responseMode = iota
 	explicitResponse
-	inferredResponse
 )
 
 // Records retain types rather than prototypes, independently of generic builders.
@@ -89,6 +88,7 @@ type routeRecord struct {
 	mode                             responseMode
 	status                           int
 	errors                           []errorMapping
+	descriptions                     routeDescriptions
 }
 type errorMapping struct {
 	status   int
@@ -113,7 +113,7 @@ type builderState struct {
 // It also registers GET /openapi.json and GET /docs on mux.
 func NewApi(mux *http.ServeMux) *Api {
 	if mux == nil {
-		panic("buddy: NewApi requires a non-nil ServeMux")
+		panic("toad: NewApi requires a non-nil ServeMux")
 	}
 	api := &Api{mux: mux, bodyLimit: DefaultBodyLimit, title: "API Documentation", version: "1.0.0"}
 	api.mux.HandleFunc("GET /openapi.json", api.ServeDocs)
@@ -121,13 +121,13 @@ func NewApi(mux *http.ServeMux) *Api {
 	return api
 }
 
-// Route begins an unfinished route. HandlerFunc is the only registration step.
+// Route begins an unfinished route. HandlerFunc or Handler completes registration.
 func (api *Api) Route(pattern string) *RouteBuilder {
 	method, path := parsePattern(pattern)
 	c := &routeConfig{api: api, pattern: pattern, record: routeRecord{method: method, path: path}}
 	return &RouteBuilder{builderState: builderState{config: c}}
 }
-func (c *routeConfig) fail(rule string) { panic(fmt.Sprintf("buddy: route %q: %s", c.pattern, rule)) }
+func (c *routeConfig) fail(rule string) { panic(fmt.Sprintf("toad: route %q: %s", c.pattern, rule)) }
 func (s builderState) active() {
 	if s.config.finalized {
 		s.config.fail("route has already been finalized")
@@ -137,6 +137,7 @@ func (s builderState) title(text string)       { s.active(); s.config.record.tit
 func (s builderState) description(text string) { s.active(); s.config.record.description = text }
 func (s builderState) body(t reflect.Type) builderState {
 	s.active()
+	s.rejectDescriptions()
 	if s.config.record.bodyType != nil {
 		s.config.fail("Body may only be selected once")
 	}
@@ -148,20 +149,19 @@ func (s builderState) body(t reflect.Type) builderState {
 	s.bodyType = t
 	return s
 }
-func (s builderState) response(mode responseMode, status int, t reflect.Type) builderState {
+func (s builderState) response(status int, t reflect.Type) builderState {
 	s.active()
+	s.rejectDescriptions()
 	if s.config.record.mode != ordinary {
-		s.config.fail("Response and Status are single-use, alternative managed selectors")
+		s.config.fail("Response may only be selected once")
 	}
 	if status < 200 || status >= 300 || status == http.StatusNoContent || status == http.StatusResetContent {
 		s.config.fail("managed responses require a JSON-bearing success status")
 	}
 	s.current()
-	if mode == explicitResponse {
-		s.config.validateResult(t)
-	}
-	s.config.record.mode, s.config.record.status, s.config.record.resultType = mode, status, t
-	s.mode, s.resultType = mode, t
+	s.config.validateResult(t)
+	s.config.record.mode, s.config.record.status, s.config.record.resultType = explicitResponse, status, t
+	s.mode, s.resultType = explicitResponse, t
 	return s
 }
 func (s builderState) addError(status int, sentinel error) {
@@ -199,24 +199,27 @@ func (s builderState) current() {
 		s.config.fail("obsolete builder does not match the selected body/response state")
 	}
 }
-func (s builderState) finalize(makeHandler func(routeRecord) http.Handler, nilHandler bool, resultType reflect.Type) {
+func (s builderState) finalize(makeHandler func(routeRecord) http.Handler, nilHandler bool) {
 	s.current()
 	c := s.config
 	if nilHandler {
-		c.fail("HandlerFunc requires a non-nil handler")
+		c.fail("HandlerFunc/Handler requires a non-nil handler")
 	}
 	if c.api == nil || c.api.mux == nil {
 		c.fail("route requires an API with a non-nil ServeMux")
 	}
 	parsePattern(c.pattern)
 	r := c.record
-	if r.mode == inferredResponse {
-		r.resultType = resultType
-	}
 	if r.mode != ordinary {
 		c.validateResult(r.resultType)
 	}
 	r.errors = append([]errorMapping(nil), r.errors...)
+	r.descriptions.parameters = append([]describedParameter(nil), r.descriptions.parameters...)
+	r.descriptions.responses = append([]describedPayload(nil), r.descriptions.responses...)
+	if r.descriptions.body != nil {
+		body := *r.descriptions.body
+		r.descriptions.body = &body
+	}
 	for _, registered := range c.api.routes {
 		if pathTemplate(registered.path) == pathTemplate(r.path) && registered.path != r.path {
 			c.fail("parameter names must agree across registrations of the same path template")
@@ -248,7 +251,7 @@ func (c *routeConfig) validateResult(t reflect.Type) {
 	}
 }
 func parsePattern(pattern string) (string, string) {
-	fail := func(rule string) { panic(fmt.Sprintf("buddy: route %q: %s", pattern, rule)) }
+	fail := func(rule string) { panic(fmt.Sprintf("toad: route %q: %s", pattern, rule)) }
 	if strings.Count(pattern, " ") != 1 || strings.IndexFunc(pattern, func(r rune) bool { return unicode.IsSpace(r) && r != ' ' }) >= 0 {
 		fail("pattern must be exactly METHOD /path with one ASCII space")
 	}

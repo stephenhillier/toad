@@ -1,4 +1,4 @@
-package buddy_test
+package toad_test
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 )
 
 // This baseline uses only stdlib request/response handling. Keep its observable
-// policies equivalent to the Buddy fixture so the benchmark compares the same
+// policies equivalent to the Toad fixture so the benchmark compares the same
 // work, including validation and buffering, rather than just a bare JSON decoder.
 func newStdlibCreateUserHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -61,7 +61,7 @@ func newStdlibCreateUserHandler() http.Handler {
 			}
 			return
 		}
-		// Marshal before writing headers, matching Buddy's failure-before-commit policy.
+		// Marshal before writing headers, matching Toad's failure-before-commit policy.
 		data, err = json.Marshal(result)
 		if err != nil {
 			slog.Error("stdlib baseline: encode response", "error", err)
@@ -74,7 +74,7 @@ func newStdlibCreateUserHandler() http.Handler {
 }
 
 func stdlibError(w http.ResponseWriter, status int, code string) {
-	// These string fields cannot fail JSON serialization. Do not use Buddy's
+	// These string fields cannot fail JSON serialization. Do not use Toad's
 	// envelope or helpers: the baseline's response handling is stdlib-only.
 	data, _ := json.Marshal(struct {
 		Code    string `json:"code"`
@@ -96,7 +96,7 @@ func stdlibWriteJSON(w http.ResponseWriter, status int, data []byte) {
 }
 
 func TestStdlibCreateUserBaselineParity(t *testing.T) {
-	buddyHandler, stdlibHandler := newCreateUserHandler(), newStdlibCreateUserHandler()
+	toadHandler, stdlibHandler := newCreateUserHandler(), newStdlibCreateUserHandler()
 	for _, tc := range []struct {
 		name, body, contentType string
 		status                  int
@@ -133,12 +133,12 @@ func TestStdlibCreateUserBaselineParity(t *testing.T) {
 					handler.ServeHTTP(rec, req)
 					return rec
 				}
-				buddyResponse, stdlibResponse := serve(buddyHandler), serve(stdlibHandler)
-				if buddyResponse.Code != tc.status || stdlibResponse.Code != tc.status {
-					t.Fatalf("status: Buddy=%d Stdlib=%d want=%d", buddyResponse.Code, stdlibResponse.Code, tc.status)
+				toadResponse, stdlibResponse := serve(toadHandler), serve(stdlibHandler)
+				if toadResponse.Code != tc.status || stdlibResponse.Code != tc.status {
+					t.Fatalf("status: Toad=%d Stdlib=%d want=%d", toadResponse.Code, stdlibResponse.Code, tc.status)
 				}
-				if !reflect.DeepEqual(buddyResponse.Header(), stdlibResponse.Header()) || buddyResponse.Body.String() != stdlibResponse.Body.String() {
-					t.Fatalf("responses differ: Buddy=%v %s; Stdlib=%v %s", buddyResponse.Header(), buddyResponse.Body, stdlibResponse.Header(), stdlibResponse.Body)
+				if !reflect.DeepEqual(toadResponse.Header(), stdlibResponse.Header()) || toadResponse.Body.String() != stdlibResponse.Body.String() {
+					t.Fatalf("responses differ: Toad=%v %s; Stdlib=%v %s", toadResponse.Header(), toadResponse.Body, stdlibResponse.Header(), stdlibResponse.Body)
 				}
 			}
 		})

@@ -1,3 +1,3 @@
 [tasks.bench]
-description = "Compare Buddy and stdlib request-handling benchmarks"
+description = "Compare Toad and stdlib request-handling benchmarks"
 run = "go test -run '^$' -bench '^BenchmarkCreateUserRequestHandling$' -benchmem -count=5"

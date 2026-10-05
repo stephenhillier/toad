@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"net/http"
@@ -15,20 +15,32 @@ func (b *RouteBuilder) Description(text string) *RouteBuilder {
 	return b
 }
 
+// Body accepts a struct type and uses it to build a schema for the endpoint.
+//
+// This method will alter the signature of the Handler or HandlerFunc associated with
+// this endpoint.
+//
+// Instead of a stdlib-like func(w, r) handler, the signature will include a body param
+// of the same type passed to Body(...). This means that the request body will be deserialized
+// and passed to your handler function.
 func (b *RouteBuilder) Body[B any](_ B) *BodyBuilder[B] {
 	return &BodyBuilder[B]{builderState: b.builderState.body(reflect.TypeFor[B]())}
 }
 
+// Response accepts a struct type denoting the shape of the response (for successful responses).
+// This will be used as the schema for the response in the generated OpenAPI spec.
+//
+// Like Body(), this method will alter the signature of the Handler or HandlerFunc associated with
+// this endpoint. Instead of writing responses to the response writer in the handler function,
+// you will instead return an instance of the type declared in Response(...) and it will be
+// serialized for you.
 func (b *RouteBuilder) Response[R any](status int, _ R) *ResponseBuilder[R] {
-	return &ResponseBuilder[R]{builderState: b.builderState.response(explicitResponse, status, reflect.TypeFor[R]())}
+	return &ResponseBuilder[R]{builderState: b.builderState.response(status, reflect.TypeFor[R]())}
 }
 
-func (b *RouteBuilder) Status(status int) *StatusBuilder {
-	return &StatusBuilder{builderState: b.builderState.response(inferredResponse, status, nil)}
-}
-
+// HandlerFunc adds a stdlib-compatible handler function to the endpoint, completing registration.
 func (b *RouteBuilder) HandlerFunc(handler func(w http.ResponseWriter, r *http.Request)) {
-	b.builderState.finalize(func(routeRecord) http.Handler { return http.HandlerFunc(handler) }, handler == nil, nil)
+	b.builderState.finalize(func(routeRecord) http.Handler { return http.HandlerFunc(handler) }, handler == nil)
 }
 
 // BodyBuilder configures an ordinary HTTP handler with a typed JSON body.
@@ -41,18 +53,30 @@ func (b *BodyBuilder[B]) Description(text string) *BodyBuilder[B] {
 	return b
 }
 
+// Body accepts a struct type and uses it to build a schema for the endpoint.
+//
+// This method will alter the signature of the Handler or HandlerFunc associated with
+// this endpoint.
+//
+// Instead of a stdlib-like func(w, r) handler, the signature will include a body param
+// of the same type passed to Body(...). This means that the request body will be deserialized
+// and passed to your handler function.
 func (b *BodyBuilder[B]) Body[C any](_ C) *BodyBuilder[C] {
 	return &BodyBuilder[C]{builderState: b.builderState.body(reflect.TypeFor[C]())}
 }
 
+// Response accepts a struct type denoting the shape of the response (for successful responses).
+// This will be used as the schema for the response in the generated OpenAPI spec.
+//
+// Like Body(), this method will alter the signature of the Handler or HandlerFunc associated with
+// this endpoint. Instead of writing responses to the response writer in the handler function,
+// you will instead return an instance of the type declared in Response(...) and it will be
+// serialized for you.
 func (b *BodyBuilder[B]) Response[R any](status int, _ R) *BodyResponseBuilder[B, R] {
-	return &BodyResponseBuilder[B, R]{builderState: b.builderState.response(explicitResponse, status, reflect.TypeFor[R]())}
+	return &BodyResponseBuilder[B, R]{builderState: b.builderState.response(status, reflect.TypeFor[R]())}
 }
 
-func (b *BodyBuilder[B]) Status(status int) *BodyStatusBuilder[B] {
-	return &BodyStatusBuilder[B]{builderState: b.builderState.response(inferredResponse, status, nil)}
-}
-
+// HandlerFunc adds a stdlib-compatible handler function to the endpoint, completing registration.
 func (b *BodyBuilder[B]) HandlerFunc(handler func(w http.ResponseWriter, r *http.Request, body B)) {
 	b.builderState.finalize(func(record routeRecord) http.Handler {
 		api := b.config.api
@@ -63,7 +87,7 @@ func (b *BodyBuilder[B]) HandlerFunc(handler func(w http.ResponseWriter, r *http
 			}
 			handler(w, r, body)
 		})
-	}, handler == nil, nil)
+	}, handler == nil)
 }
 
 // ResponseBuilder configures a managed handler with an explicit result type.
@@ -79,30 +103,45 @@ func (b *ResponseBuilder[R]) Description(text string) *ResponseBuilder[R] {
 	return b
 }
 
+// Body accepts a struct type and uses it to build a schema for the endpoint.
+//
+// This method will alter the signature of the Handler or HandlerFunc associated with
+// this endpoint.
+//
+// Instead of a stdlib-like func(w, r) handler, the signature will include a body param
+// of the same type passed to Body(...). This means that the request body will be deserialized
+// and passed to your handler function.
 func (b *ResponseBuilder[R]) Body[B any](_ B) *BodyResponseBuilder[B, R] {
 	return &BodyResponseBuilder[B, R]{builderState: b.builderState.body(reflect.TypeFor[B]())}
 }
 
+// Response accepts a struct type denoting the shape of the response (for successful responses).
+// This will be used as the schema for the response in the generated OpenAPI spec.
+//
+// Like Body(), this method will alter the signature of the Handler or HandlerFunc associated with
+// this endpoint. Instead of writing responses to the response writer in the handler function,
+// you will instead return an instance of the type declared in Response(...) and it will be
+// serialized for you.
 func (b *ResponseBuilder[R]) Response[S any](status int, _ S) *ResponseBuilder[S] {
-	return &ResponseBuilder[S]{builderState: b.builderState.response(explicitResponse, status, reflect.TypeFor[S]())}
+	return &ResponseBuilder[S]{builderState: b.builderState.response(status, reflect.TypeFor[S]())}
 }
 
-func (b *ResponseBuilder[R]) Status(status int) *StatusBuilder {
-	return &StatusBuilder{builderState: b.builderState.response(inferredResponse, status, nil)}
-}
-
+// Error registers a possible error and its status code to the endpoint.
+// Registered error types can be returned from the handler function, triggering
+// an error response.
 func (b *ResponseBuilder[R]) Error(status int, sentinel error) *ResponseBuilder[R] {
 	b.builderState.addError(status, sentinel)
 	return b
 }
 
+// HandlerFunc adds a handler function (with a response manager) to the endpoint, completing registration.
 func (b *ResponseBuilder[R]) HandlerFunc(handler func(r *http.Request) (R, error)) {
 	b.builderState.finalize(func(record routeRecord) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			result, err := handler(r)
 			writeManaged(w, result, err, record.status, record.errors)
 		})
-	}, handler == nil, reflect.TypeFor[R]())
+	}, handler == nil)
 }
 
 // BodyResponseBuilder configures a managed handler with typed body and result.
@@ -118,23 +157,32 @@ func (b *BodyResponseBuilder[B, R]) Description(text string) *BodyResponseBuilde
 	return b
 }
 
+// Body accepts a struct type and uses it to build a schema for the endpoint.
+//
+// This method will alter the signature of the Handler or HandlerFunc associated with
+// this endpoint.
+//
+// Instead of a stdlib-like func(w, r) handler, the signature will include a body param
+// of the same type passed to Body(...). This means that the request body will be deserialized
+// and passed to your handler function.
 func (b *BodyResponseBuilder[B, R]) Body[C any](_ C) *BodyResponseBuilder[C, R] {
 	return &BodyResponseBuilder[C, R]{builderState: b.builderState.body(reflect.TypeFor[C]())}
 }
 
 func (b *BodyResponseBuilder[B, R]) Response[S any](status int, _ S) *BodyResponseBuilder[B, S] {
-	return &BodyResponseBuilder[B, S]{builderState: b.builderState.response(explicitResponse, status, reflect.TypeFor[S]())}
+	return &BodyResponseBuilder[B, S]{builderState: b.builderState.response(status, reflect.TypeFor[S]())}
 }
 
-func (b *BodyResponseBuilder[B, R]) Status(status int) *BodyStatusBuilder[B] {
-	return &BodyStatusBuilder[B]{builderState: b.builderState.response(inferredResponse, status, nil)}
-}
-
+// Error registers a possible error and its status code to the endpoint.
+// Registered error types can be returned from the handler function, triggering
+// an error response.
 func (b *BodyResponseBuilder[B, R]) Error(status int, sentinel error) *BodyResponseBuilder[B, R] {
 	b.builderState.addError(status, sentinel)
 	return b
 }
 
+// HandlerFunc adds a non-stdlib handler function (with a pre-defined body and a response manager)
+// to the endpoint, completing registration.
 func (b *BodyResponseBuilder[B, R]) HandlerFunc(handler func(r *http.Request, body B) (R, error)) {
 	b.builderState.finalize(func(record routeRecord) http.Handler {
 		api := b.config.api
@@ -146,86 +194,5 @@ func (b *BodyResponseBuilder[B, R]) HandlerFunc(handler func(r *http.Request, bo
 			result, err := handler(r, body)
 			writeManaged(w, result, err, record.status, record.errors)
 		})
-	}, handler == nil, reflect.TypeFor[R]())
-}
-
-// StatusBuilder configures a managed handler whose result type is inferred.
-type StatusBuilder struct{ builderState }
-
-func (b *StatusBuilder) Title(text string) *StatusBuilder { b.builderState.title(text); return b }
-
-func (b *StatusBuilder) Description(text string) *StatusBuilder {
-	b.builderState.description(text)
-	return b
-}
-
-func (b *StatusBuilder) Body[B any](_ B) *BodyStatusBuilder[B] {
-	return &BodyStatusBuilder[B]{builderState: b.builderState.body(reflect.TypeFor[B]())}
-}
-
-func (b *StatusBuilder) Response[R any](status int, _ R) *ResponseBuilder[R] {
-	return &ResponseBuilder[R]{builderState: b.builderState.response(explicitResponse, status, reflect.TypeFor[R]())}
-}
-
-func (b *StatusBuilder) Status(status int) *StatusBuilder {
-	return &StatusBuilder{builderState: b.builderState.response(inferredResponse, status, nil)}
-}
-
-func (b *StatusBuilder) Error(status int, sentinel error) *StatusBuilder {
-	b.builderState.addError(status, sentinel)
-	return b
-}
-
-func (b *StatusBuilder) HandlerFunc[R any](handler func(r *http.Request) (R, error)) {
-	b.builderState.finalize(func(record routeRecord) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			result, err := handler(r)
-			writeManaged(w, result, err, record.status, record.errors)
-		})
-	}, handler == nil, reflect.TypeFor[R]())
-}
-
-// BodyStatusBuilder configures a managed handler with a typed JSON body and an
-// inferred result type.
-type BodyStatusBuilder[B any] struct{ builderState }
-
-func (b *BodyStatusBuilder[B]) Title(text string) *BodyStatusBuilder[B] {
-	b.builderState.title(text)
-	return b
-}
-
-func (b *BodyStatusBuilder[B]) Description(text string) *BodyStatusBuilder[B] {
-	b.builderState.description(text)
-	return b
-}
-
-func (b *BodyStatusBuilder[B]) Body[C any](_ C) *BodyStatusBuilder[C] {
-	return &BodyStatusBuilder[C]{builderState: b.builderState.body(reflect.TypeFor[C]())}
-}
-
-func (b *BodyStatusBuilder[B]) Response[R any](status int, _ R) *BodyResponseBuilder[B, R] {
-	return &BodyResponseBuilder[B, R]{builderState: b.builderState.response(explicitResponse, status, reflect.TypeFor[R]())}
-}
-
-func (b *BodyStatusBuilder[B]) Status(status int) *BodyStatusBuilder[B] {
-	return &BodyStatusBuilder[B]{builderState: b.builderState.response(inferredResponse, status, nil)}
-}
-
-func (b *BodyStatusBuilder[B]) Error(status int, sentinel error) *BodyStatusBuilder[B] {
-	b.builderState.addError(status, sentinel)
-	return b
-}
-
-func (b *BodyStatusBuilder[B]) HandlerFunc[R any](handler func(r *http.Request, body B) (R, error)) {
-	b.builderState.finalize(func(record routeRecord) http.Handler {
-		api := b.config.api
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			body, ok := decodeBody[B](w, r, api.bodyLimit)
-			if !ok {
-				return
-			}
-			result, err := handler(r, body)
-			writeManaged(w, result, err, record.status, record.errors)
-		})
-	}, handler == nil, reflect.TypeFor[R]())
+	}, handler == nil)
 }

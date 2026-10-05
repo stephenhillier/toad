@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"net/http"
@@ -36,7 +36,7 @@ func TestPatternSubset(t *testing.T) {
 	} {
 		t.Run(pattern, func(t *testing.T) {
 			api := NewApi(http.NewServeMux())
-			requireRoutePanic(t, pattern, "buddy:", func() { api.Route(pattern) })
+			requireRoutePanic(t, pattern, "toad:", func() { api.Route(pattern) })
 			if len(api.routes) != 0 {
 				t.Fatal("Invalid pattern published metadata")
 			}

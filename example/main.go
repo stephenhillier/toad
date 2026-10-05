@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/stephenhillier/buddy"
+	"github.com/stephenhillier/toad"
 )
 
 // Response models
@@ -34,7 +34,7 @@ type SuccessResponse struct {
 
 func main() {
 	mux := http.NewServeMux()
-	api := buddy.NewApi(mux)
+	api := toad.NewApi(mux)
 
 	api.Route("GET /users/{id}").Description("Get user by ID").HandlerFunc(getUserHandler)
 	api.Route("POST /users").Description("Create a new user").Body(CreateUserRequest{}).HandlerFunc(createUserHandler)

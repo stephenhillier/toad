@@ -1,10 +1,10 @@
-package buddy_test
+package toad_test
 
 import (
 	"log"
 	"net/http"
 
-	"github.com/stephenhillier/buddy"
+	"github.com/stephenhillier/toad"
 )
 
 func ExampleNewApi() {
@@ -13,13 +13,13 @@ func ExampleNewApi() {
 	}
 
 	mux := http.NewServeMux()
-	api := buddy.NewApi(mux)
+	api := toad.NewApi(mux)
 	api.BodyLimit(128) // Optional: limit JSON request bodies to 128 bytes.
 
 	api.Route("POST /users").
 		Title("Create a user").
 		Body(User{}).
-		Status(http.StatusCreated).
+		Response(http.StatusCreated, User{}).
 		HandlerFunc(func(r *http.Request, user User) (User, error) {
 			return user, nil
 		})

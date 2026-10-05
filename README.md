@@ -1,6 +1,6 @@
-# Buddy
+# Toad
 
-Buddy registers HTTP handlers with a fluent, typed route builder and generates
+Toad registers HTTP handlers with a fluent, typed route builder and generates
 OpenAPI 3.0 documentation. The builder requires **Go 1.27 or newer** for generic
 methods.
 
@@ -14,12 +14,12 @@ go run ./example
 
 The example serves `/docs` and `/openapi.json` at `http://localhost:8080`.
 Register routes during startup; each chain registers only when `HandlerFunc`
-is called. Finish configuration before serving requests or generating documentation;
+or ordinary `Handler` is called. Finish configuration before serving requests or generating documentation;
 concurrent route reconfiguration is unsupported. Invalid configuration and repeated finalization panic during setup.
 
 ```go
 mux := http.NewServeMux()
-api := buddy.NewApi(mux)
+api := toad.NewApi(mux)
 api.Route("GET /health").
     Title("Health check").
     HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +27,7 @@ api.Route("GET /health").
     })
 ```
 
-Typed ordinary, explicit-response, and inferred-response builders support required
+Ordinary and managed-response builders support required
 struct-valued bodies through `Body(Model{})`. Each request receives a fresh value;
 prototype fields are not defaults. Requests must use `application/json` (valid
 media-type parameters are accepted) and contain exactly one JSON object. Empty,
@@ -40,7 +40,7 @@ return 413, including when Content-Length is absent. All bytes count toward the
 limit, including whitespace. Override the limit during startup, before serving:
 
 ```go
-api := buddy.NewApi(mux).BodyLimit(2 << 20) // 2 MiB
+api := toad.NewApi(mux).BodyLimit(2 << 20) // 2 MiB
 ```
 
 `BodyLimit` requires a positive byte count and applies to all typed-body routes,
@@ -49,7 +49,7 @@ reading; otherwise the size limit is checked before decoding. Every decoding
 failure stops before the application handler runs and returns the JSON error
 envelope described below.
 
-Buddy uses the supplied `http.ServeMux`, so external middleware can wrap it as
+Toad uses the supplied `http.ServeMux`, so external middleware can wrap it as
 usual (`http.ListenAndServe(":8080", middleware(mux))`). Request contexts,
 cancellation, and `r.PathValue("id")` remain available in every handler mode.
 Handlers registered directly on the mux are served but are not documented.
@@ -63,12 +63,11 @@ catch-alls, end anchors, trailing-slash subtrees, and normalized/escaped pattern
 paths are rejected during setup. See the [pattern contract](plans/API_DESIGN.md#registration-decisions-task-1a-settled-2026-09-30)
 for the full subset.
 
-Managed handlers return `(Model, error)` and let Buddy write JSON at the selected
-status. `Response(status, Model{})` fixes the model explicitly; `Status(status)`
-infers it from the handler:
+Managed handlers return `(Model, error)` and let Toad write JSON at the selected
+status. `Response(status, Model{})` declares the status and model:
 
 ```go
-api.Route("GET /users/{id}").Status(http.StatusOK).
+api.Route("GET /users/{id}").Response(http.StatusOK, User{}).
     Error(http.StatusNotFound, ErrNotFound).
     HandlerFunc(func(r *http.Request) (User, error) {
         return lookupUser(r.Context(), r.PathValue("id"))
@@ -88,7 +87,7 @@ accepts statuses 400–599 and non-nil, comparable sentinels. Matching uses
 can share a status; repeating the same mapping is harmless, but mapping the same
 sentinel to different statuses panics.
 
-Decoder and managed errors use the public `buddy.ErrorResponse` envelope:
+Decoder and managed errors use the public `toad.ErrorResponse` envelope:
 
 ```json
 {"code":"application_error","message":"Not Found"}
@@ -101,20 +100,20 @@ HTTP status text, or "Request failed" for an unrecognized status. Sentinel text
 and wrapped context are never exposed. OpenAPI merges codes sharing a status
 into one envelope schema.
 
-Buddy finishes encoding before committing success headers. Unmatched errors,
+Toad finishes encoding before committing success headers. Unmatched errors,
 encoding failures, and post-commit write failures are logged through the default
 `log/slog` logger; write failures never trigger a second response. Mapped errors
 are expected application outcomes and are not logged automatically.
 
-Ordinary handlers may use `buddy.JSON(w, status, value)` to encode before writing
+Ordinary handlers may use `toad.JSON(w, status, value)` to encode before writing
 JSON. It returns encoding or write errors to the caller and does not automatically
 log or emit an error response. Validation/encoding errors leave the writer
 untouched; write errors occur after commitment. Ordinary handlers retain response
 ownership. See [the implementation plan](plans/01-poc.md) and
 [API design](plans/API_DESIGN.md) for scope and deferred features.
 
-The end-to-end test in `managed_e2e_test.go` exercises both explicit `Response`
-and inferred `Status` routes with `Body` and `Error` over HTTP, validating the
+The end-to-end test in `managed_e2e_test.go` exercises `Response`
+routes with `Body` and `Error` over HTTP, validating the
 served OpenAPI document and response payloads. Run it and its request-handling benchmark with:
 
 ```sh
@@ -125,7 +124,7 @@ mise run bench
 The benchmark covers successful creation. It excludes route setup, OpenAPI
 generation, and network transport; it includes routing, body decoding,
 application logic, JSON encoding/writing, and lightweight buffer resets.
-`Buddy/Created` is compared with `Stdlib/Created` through the same harness. The
+`Toad/Created` is compared with `Stdlib/Created` through the same harness. The
 baseline in `stdlib_baseline_test.go` uses only standard-library request/response
 handling, including JSON decoding and encoding in its handler. Both implementations use
 the same application function, payloads, 128-byte body limit, decoding rules,
@@ -133,9 +132,9 @@ error envelopes, and encode-before-commit behavior. A parity test checks their
 status codes, headers, and payloads across successful and invalid requests.
 
 A five-run sample on 2026-10-01 (Go 1.27.1, linux/amd64, Ryzen 7 5700X)
-measured median times of 1,588 ns/op for Buddy and 1,575 ns/op for stdlib
+measured median times of 1,588 ns/op for Toad and 1,575 ns/op for stdlib
 (about 0.8% overhead), both at 1,147 B/op and 11 allocs/op. The timing ranges
-overlapped (Buddy 1,554–1,609; stdlib 1,571–1,611 ns/op); this small successful
+overlapped (Toad 1,554–1,609; stdlib 1,571–1,611 ns/op); this small successful
 request benchmark is not evidence of a significant performance difference or
 representative of every workload.
 
@@ -157,7 +156,7 @@ go test -run '^$' -bench '^BenchmarkCreateUserRequestHandling$/Stdlib' -benchmem
 ## Model schemas
 
 `Generate()` shares named Go models through OpenAPI components, including nested
-and recursive models. Requests and explicit/inferred responses use the same
+and recursive models. Requests and managed responses use the same
 registry. Distinct types with the same name receive deterministic name suffixes.
 
 Exported fields honor JSON names, `json:"-"`, empty names, `omitempty`, `omitzero`,
@@ -171,3 +170,57 @@ JSON field names, custom JSON/text encoding methods (including `time.Time` and
 `json.RawMessage`), interfaces, non-string map keys, and unsupported kinds.
 Schema overrides are deferred. See [the schema design](plans/API_DESIGN.md#openapi-and-reusable-schemas)
 for naming and representation details.
+
+## Adopt Toad in an existing service
+
+Replace each `mux.HandleFunc` or `mux.Handle` registration with a Toad chain,
+keeping your existing handlers and middleware. Register each pattern once;
+Toad cannot attach documentation to a route already registered on the mux.
+This path also requires Go 1.27 or newer.
+
+```go
+// Before: mux.Handle("PUT /users/{id}", middleware(http.HandlerFunc(updateUser)))
+api.Route("PUT /users/{id}").
+    DescribeBody(UpdateUser{}).
+    DescribeParams(UserParams{}).
+    DescribeQuery(UserQuery{}).
+    DescribeResponse(http.StatusOK, User{}).
+    DescribeResponse(http.StatusBadRequest, ExistingError{}).
+    Handler(middleware(http.HandlerFunc(updateUser)))
+```
+
+Use `HandlerFunc(updateUser)` for an unwrapped standard handler. All prototypes
+supply types, not defaults. `DescribeBody` documents a required JSON body;
+individual body fields are not marked required. `DescribeResponse(status, model)`
+documents JSON at that status. Use `DescribeResponse(http.StatusNoContent, nil)`
+for an outcome without a body. Only a nil interface means no body; a typed nil
+pointer still describes its nullable model type. Repeat responses with distinct
+statuses. Without described responses, OpenAPI retains the handler-defined
+`default` response.
+
+Query/path prototypes are structs with exported scalar fields:
+
+```go
+type UserParams struct { ID string `path:"id"` }
+type UserQuery struct { Verbose bool `query:"verbose"` }
+```
+
+Tags supply names only; `"-"` skips a field, and untagged fields use their Go
+names. Query parameters are optional and use OpenAPI `form` serialization;
+path parameters use `simple` serialization and are required by OpenAPI.
+`DescribeParams` must cover exactly the route's parameter names. Collections,
+objects, and pointer parameters are unsupported. Required-field annotations,
+validation rules, and media-type options are deferred.
+
+Descriptions do not read requests, enforce payload contracts, change status
+codes, serialize responses, or introduce Toad error handling. Your handler
+continues to own all those behaviors, including middleware and validation.
+Schema generation still reports unsupported models. Use application contract
+tests to check that documentation matches actual behavior.
+
+Descriptions cannot be combined with `Body` or `Response`. To adopt
+typed decoding or managed responses later, replace the route's `Describe*`
+configuration with those selectors and update its handler signature accordingly.
+
+See the [complete existing-service example](example/adoption/main.go), runnable
+with `go run ./example/adoption`; its documentation is at `/docs`.

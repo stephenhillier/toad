@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"encoding/json"
@@ -140,7 +140,7 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 	api := NewApi(http.NewServeMux())
 	api.Route("GET /users/{id}").Description("Get user by ID").Response(http.StatusOK, UserResponse{}).
 		HandlerFunc(func(r *http.Request) (UserResponse, error) { return UserResponse{}, nil })
-	api.Route("POST /users").Description("Create a user").Body(CreateUserRequest{}).Status(http.StatusCreated).
+	api.Route("POST /users").Description("Create a user").Body(CreateUserRequest{}).Response(http.StatusCreated, UserResponse{}).
 		HandlerFunc(func(r *http.Request, body CreateUserRequest) (UserResponse, error) { return UserResponse{}, nil })
 	data, err := api.Generate()
 	if err != nil {
@@ -274,7 +274,7 @@ func TestApiGenerateResponseSchemas(t *testing.T) {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
-	// Ordinary handlers define their own output; no success status is inferred.
+	// Ordinary handlers define their own output; no success status is declared.
 	for name, operation := range map[string]*openapi3.Operation{
 		"GET /users":         spec.Paths.Find("/users").Get,
 		"POST /users":        spec.Paths.Find("/users").Post,

@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"crypto/sha256"
@@ -157,7 +157,7 @@ func (r *schemaRegistry) shape(t reflect.Type) (*openapi3.Schema, error) {
 			}
 			schema.Properties[name] = ref
 		}
-		// These two fields are guaranteed by Buddy's own envelope writer.
+		// These two fields are guaranteed by Toad's own envelope writer.
 		if t == reflect.TypeFor[ErrorResponse]() {
 			schema.Required = []string{"code", "message"}
 		}
@@ -198,7 +198,7 @@ func (r *schemaRegistry) finish() error {
 			name = fmt.Sprintf("%s_%x", name, hash)
 		}
 		if _, exists := r.components[name]; exists {
-			return fmt.Errorf("buddy: schema component name collision for %s", t)
+			return fmt.Errorf("toad: schema component name collision for %s", t)
 		}
 		r.components[name] = &openapi3.SchemaRef{Value: r.models[t]}
 		for _, ref := range r.refs[t] {

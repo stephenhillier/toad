@@ -1,4 +1,4 @@
-package buddy
+package toad
 
 import (
 	"encoding/json"
@@ -30,7 +30,7 @@ const (
 // Ordinary handlers own error handling; this utility does not log or emit a 500.
 func JSON(w http.ResponseWriter, status int, value any) error {
 	if status < 200 || status > 599 || status == 204 || status == 205 || status == 304 {
-		return fmt.Errorf("buddy: JSON requires a body-bearing final HTTP status")
+		return fmt.Errorf("toad: JSON requires a body-bearing final HTTP status")
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -78,5 +78,5 @@ func writeError(w http.ResponseWriter, status int, code string) {
 
 // Keep logging and public formatting separate for later customization.
 func reportResponseError(operation string, err error) {
-	slog.Error("buddy: "+operation, "error", err)
+	slog.Error("toad: "+operation, "error", err)
 }

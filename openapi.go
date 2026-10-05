@@ -1,5 +1,5 @@
 // openapi.go contains functions for generating OpenAPI specifications.
-package buddy
+package toad
 
 import (
 	"embed"
@@ -49,7 +49,7 @@ func (api *Api) Generate() ([]byte, error) {
 				var err error
 				models[i], err = registry.schema(model.typ)
 				if err != nil {
-					return nil, fmt.Errorf("buddy: route %q %s model %s: %w", route.method+" "+route.path, model.name, model.typ, err)
+					return nil, fmt.Errorf("toad: route %q %s model %s: %w", route.method+" "+route.path, model.name, model.typ, err)
 				}
 			}
 		}
@@ -108,6 +108,9 @@ func (api *Api) Generate() ([]byte, error) {
 
 		// Add the selected managed success response
 		addResponses(operation, route, registry, models[1])
+		if err := addDescriptions(operation, route, registry); err != nil {
+			return nil, err
+		}
 		pathItem.SetOperation(route.method, operation)
 	}
 
@@ -117,7 +120,7 @@ func (api *Api) Generate() ([]byte, error) {
 
 	// Validate the document
 	if err := doc.Validate(openapi3.NewLoader().Context); err != nil {
-		return nil, fmt.Errorf("buddy: validate OpenAPI document: %w", err)
+		return nil, fmt.Errorf("toad: validate OpenAPI document: %w", err)
 	}
 
 	// Marshal to JSON
