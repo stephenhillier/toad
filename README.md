@@ -120,6 +120,11 @@ go run ./examples/crud
 
 Open http://localhost:8080/docs to view the API docs.
 
+## Roadmap
+
+- Query parameters, path parameters
+- Validation (likely using existing validation packages)
+
 ## Benchmark
 
 ```sh
