@@ -30,7 +30,13 @@ Toad's managed handlers return `(Model, error)`, and Toad writes the JSON respon
 By using `Response(status, Model{})` while registering an endpoint, Toad knows
 to expect a managed handler instead of an stdlib handler.
 
-::: Why should I use a non-stdlib handler?
+> [!TIP]
+> **Why should I use a non-stdlib handler?**
+>
+> Toad handlers help prevent drift between documentation and actual behavior. It's also convenient:
+>
+> - Return typed models from handlers (Toad handles JSON responses).
+> - Map Go errors to HTTP status codes and error messages.
 
 ```go
 api.Route("GET /users/{id}").
