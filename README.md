@@ -1,5 +1,8 @@
 # Toad
 
+> [!WARNING]
+> Toad is an experimental project. It may not be suitable for a production API.
+
 Toad is a micro-framework that makes it easy to create JSON-based HTTP APIs with OpenAPI documentation using the Go programming language.
 
 Toad allows you to register endpoints using ServeMux-style patterns, add documentation to them, and attach either a Toad handler with typed request bodies and response models, or a normal stdlib http handler.
