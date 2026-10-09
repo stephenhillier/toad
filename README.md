@@ -94,6 +94,16 @@ api.Route("PUT /users/{id}").
     Handler(middleware(http.HandlerFunc(updateUser)))
 ```
 
+## Full example
+
+See [examples/crud](examples/crud) for a full example. Quickstart:
+
+```sh
+go run ./examples/crud
+```
+
+Open http://localhost:8080/docs to view the API docs.
+
 ## Benchmark
 
 ```sh
