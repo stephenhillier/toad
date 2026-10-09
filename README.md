@@ -2,7 +2,7 @@
 
 Toad is a micro-framework that makes it easy to create JSON-based HTTP APIs with OpenAPI documentation using the Go programming language.
 
-Toad allows you to register endpoints using ServeMux-style patterns, add documentation to them, and attach either a Toad http handler with typed request (Body, Query) and response models, or a normal stdlib http handler.
+Toad allows you to register endpoints using ServeMux-style patterns, add documentation to them, and attach either a Toad handler with typed request bodies and response models, or a normal stdlib http handler.
 
 Toad requires Go 1.27.
 
@@ -11,18 +11,27 @@ Toad requires Go 1.27.
 ### Registering endpoints
 
 ```go
+type Product struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+type ProductList struct {
+    Items []Product `json:"items"`
+}
+
 mux := http.NewServeMux()
 api := toad.NewApi(mux)
 api.Route("GET /products").
     Title("List products").
-    Description("List all products")
-    Body(http.StatusOK, []models.Product{})
-    HandlerFunc(func(w http.ResponseWriter, r *http.Request) ([]models.Product, error) {
-      return []models.Product{
-        {Id: 1, Name: "widget"},
-        {Id: 2, Name: "whirlygig"},
-        {Id: 3, Name: "doodad"},
-      }, nil
+    Description("Browse all products available in the catalog.").
+    Response(http.StatusOK, ProductList{}).
+    HandlerFunc(func(r *http.Request) (ProductList, error) {
+        return ProductList{Items: []Product{
+            {ID: 1, Name: "widget"},
+            {ID: 2, Name: "whirlygig"},
+            {ID: 3, Name: "doodad"},
+        }}, nil
     })
 ```
 

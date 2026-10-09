@@ -8,4 +8,4 @@ go run ./examples/crud
 go run ./examples/crud -addr :8081
 ```
 
-After the server is running, view the API docs at https://localhost:8080/docs.
+After the server is running, view the API docs at http://localhost:8080/docs.

@@ -22,9 +22,6 @@ type ExistingError struct {
 type UserParams struct {
 	ID string `path:"id"`
 }
-type UserQuery struct {
-	Verbose bool `query:"verbose"`
-}
 
 // The existing handler still owns decoding, validation, and all response writes.
 func updateUser(w http.ResponseWriter, r *http.Request) {
@@ -37,12 +34,14 @@ func updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(User{ID: r.PathValue("id"), Name: input.Name})
 }
+
 func existingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Service", "legacy")
 		next.ServeHTTP(w, r)
 	})
 }
+
 func main() {
 	mux := http.NewServeMux()
 	api := toad.NewApi(mux)
@@ -50,7 +49,6 @@ func main() {
 	api.Route("PUT /users/{id}").
 		DescribeBody(UpdateUser{}).
 		DescribeParams(UserParams{}).
-		DescribeQuery(UserQuery{}).
 		DescribeResponse(http.StatusOK, User{}).
 		DescribeResponse(http.StatusBadRequest, ExistingError{}).
 		Handler(existingMiddleware(http.HandlerFunc(updateUser)))
