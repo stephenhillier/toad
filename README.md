@@ -124,6 +124,7 @@ Open http://localhost:8080/docs to view the API docs.
 
 - Query parameters, path parameters
 - Validation (likely using existing validation packages)
+- Authentication documentation
 
 ## Benchmark
 
