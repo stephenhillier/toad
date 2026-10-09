@@ -7,7 +7,7 @@ Toad is a micro-framework that makes it easy to create JSON-based HTTP APIs with
 
 Toad allows you to register endpoints using ServeMux-style patterns, add documentation to them, and attach either a Toad handler with typed request bodies and response models, or a normal stdlib http handler.
 
-Toad requires Go 1.27.
+Go version 1.27 is required.
 
 ## Usage
 
