@@ -1,5 +1,9 @@
 # Toad
 
+<p align="center">
+  <img src="static/toad2.png" alt="Toad mascot" width="360">
+</p>
+
 > [!WARNING]
 > Toad is an experimental project. It may not be suitable for a production API.
 
