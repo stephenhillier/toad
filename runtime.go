@@ -13,7 +13,7 @@ import (
 func decodeBody[B any](w http.ResponseWriter, r *http.Request, limit int64) (B, bool) {
 	var body B
 	fail := func(status int) (B, bool) {
-		writeError(w, status, decoderErrorCode(status))
+		writeError(w, status)
 		return body, false
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -50,18 +50,18 @@ func writeManaged[R any](w http.ResponseWriter, result R, err error, status int,
 	if err != nil {
 		for _, mapping := range mappings {
 			if errors.Is(err, mapping.sentinel) {
-				writeError(w, mapping.status, CodeApplicationError)
+				writeErrorDetail(w, mapping.status, mapping.detail)
 				return
 			}
 		}
 		reportResponseError("unmatched handler error", err)
-		writeError(w, http.StatusInternalServerError, CodeInternalError)
+		writeError(w, http.StatusInternalServerError)
 		return
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
 		reportResponseError("encode managed response", err)
-		writeError(w, http.StatusInternalServerError, CodeInternalError)
+		writeError(w, http.StatusInternalServerError)
 		return
 	}
 	if err := writeJSON(w, status, data); err != nil {

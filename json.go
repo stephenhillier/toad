@@ -9,19 +9,10 @@ import (
 )
 
 // ErrorResponse is the shared envelope for decoder and managed handler errors.
-// Message contains only generic HTTP status text, never an application's error.
+// Detail contains registered sentinel text or generic HTTP status text.
 type ErrorResponse struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Detail string `json:"detail"`
 }
-
-const (
-	CodeInvalidBody          = "invalid_body"
-	CodeBodyTooLarge         = "body_too_large"
-	CodeUnsupportedMediaType = "unsupported_media_type"
-	CodeApplicationError     = "application_error"
-	CodeInternalError        = "internal_error"
-)
 
 // JSON encodes value before committing headers, then writes an application/json
 // response. It accepts body-bearing final HTTP statuses (200-599 except 204,
@@ -49,28 +40,21 @@ func writeJSON(w http.ResponseWriter, status int, data []byte) error {
 	return err
 }
 
-func decoderErrorCode(status int) string {
-	switch status {
-	case http.StatusRequestEntityTooLarge:
-		return CodeBodyTooLarge
-	case http.StatusUnsupportedMediaType:
-		return CodeUnsupportedMediaType
-	default:
-		return CodeInvalidBody
-	}
-}
-
-func publicError(status int, code string) ErrorResponse {
+func publicError(status int) ErrorResponse {
 	message := http.StatusText(status)
 	if message == "" {
 		message = "Request failed"
 	}
-	return ErrorResponse{Code: code, Message: message}
+	return ErrorResponse{Detail: message}
 }
 
-func writeError(w http.ResponseWriter, status int, code string) {
+func writeError(w http.ResponseWriter, status int) {
+	writeErrorDetail(w, status, publicError(status).Detail)
+}
+
+func writeErrorDetail(w http.ResponseWriter, status int, detail string) {
 	// This envelope contains only strings, so marshaling cannot fail.
-	data, _ := json.Marshal(publicError(status, code))
+	data, _ := json.Marshal(ErrorResponse{Detail: detail})
 	if err := writeJSON(w, status, data); err != nil {
 		reportResponseError("write error response", err)
 	}

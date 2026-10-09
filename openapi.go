@@ -153,40 +153,36 @@ func extractPathParameters(path string) []string {
 
 // addResponses documents only the route contract, using the runtime error envelope.
 func addResponses(operation *openapi3.Operation, route routeRecord, registry *schemaRegistry, success *openapi3.SchemaRef) {
-	codes := make(map[int][]string)
-	addCode := func(status int, code string) {
-		for _, existing := range codes[status] {
-			if existing == code {
+	details := make(map[int][]any)
+	addDetail := func(status int, detail string) {
+		for _, existing := range details[status] {
+			if existing == detail {
 				return
 			}
 		}
-		codes[status] = append(codes[status], code)
+		details[status] = append(details[status], detail)
 	}
 	if route.bodyType != nil {
 		for _, status := range []int{400, 413, 415} {
-			addCode(status, decoderErrorCode(status))
+			addDetail(status, publicError(status).Detail)
 		}
 	}
 	if route.mode != ordinary {
-		addCode(500, CodeInternalError)
+		addDetail(500, publicError(500).Detail)
 		for _, mapping := range route.errors {
-			addCode(mapping.status, CodeApplicationError)
+			addDetail(mapping.status, mapping.detail)
 		}
 	}
-	for status, values := range codes {
+	for status, values := range details {
 		base, _ := registry.schema(reflect.TypeFor[ErrorResponse]()) // fixed, supported framework model
+		detail := publicError(status).Detail
 		schema := openapi3.NewObjectSchema()
 		schema.AllOf = openapi3.SchemaRefs{base}
 		schema.Properties = openapi3.Schemas{
-			"code":    {Value: openapi3.NewStringSchema()},
-			"message": {Value: openapi3.NewStringSchema()},
+			"detail": {Value: openapi3.NewStringSchema().WithEnum(values...)},
 		}
-		for _, code := range values {
-			schema.Properties["code"].Value.Enum = append(schema.Properties["code"].Value.Enum, code)
-		}
-		schema.Properties["message"].Value.Enum = []any{publicError(status, values[0]).Message}
 		operation.Responses.Set(fmt.Sprintf("%d", status), &openapi3.ResponseRef{Value: &openapi3.Response{
-			Description: ptr(publicError(status, values[0]).Message),
+			Description: ptr(detail),
 			Content:     openapi3.Content{"application/json": &openapi3.MediaType{Schema: &openapi3.SchemaRef{Value: schema}}},
 		}})
 	}

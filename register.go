@@ -93,6 +93,7 @@ type routeRecord struct {
 type errorMapping struct {
 	status   int
 	sentinel error
+	detail   string
 }
 type routeConfig struct {
 	api       *Api
@@ -190,7 +191,7 @@ func (s builderState) addError(status int, sentinel error) {
 			return
 		}
 	}
-	s.config.record.errors = append(s.config.record.errors, errorMapping{status, sentinel})
+	s.config.record.errors = append(s.config.record.errors, errorMapping{status: status, sentinel: sentinel, detail: sentinel.Error()})
 }
 func (s builderState) current() {
 	s.active()

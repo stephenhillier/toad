@@ -126,9 +126,9 @@ func (b *ResponseBuilder[R]) Response[S any](status int, _ S) *ResponseBuilder[S
 	return &ResponseBuilder[S]{builderState: b.builderState.response(status, reflect.TypeFor[S]())}
 }
 
-// Error registers a possible error and its status code to the endpoint.
-// Registered error types can be returned from the handler function, triggering
-// an error response.
+// Error maps a sentinel to an HTTP status using errors.Is.
+// Its Error() text is captured at registration and exposed as the public detail.
+// Wrapped context and unmatched errors remain private.
 func (b *ResponseBuilder[R]) Error(status int, sentinel error) *ResponseBuilder[R] {
 	b.builderState.addError(status, sentinel)
 	return b
@@ -173,9 +173,9 @@ func (b *BodyResponseBuilder[B, R]) Response[S any](status int, _ S) *BodyRespon
 	return &BodyResponseBuilder[B, S]{builderState: b.builderState.response(status, reflect.TypeFor[S]())}
 }
 
-// Error registers a possible error and its status code to the endpoint.
-// Registered error types can be returned from the handler function, triggering
-// an error response.
+// Error maps a sentinel to an HTTP status using errors.Is.
+// Its Error() text is captured at registration and exposed as the public detail.
+// Wrapped context and unmatched errors remain private.
 func (b *BodyResponseBuilder[B, R]) Error(status int, sentinel error) *BodyResponseBuilder[B, R] {
 	b.builderState.addError(status, sentinel)
 	return b

@@ -115,7 +115,7 @@ func TestRequiredJSONBody(t *testing.T) {
 					if calls != wantCalls {
 						t.Fatalf("handler called %d times, want %d", calls, wantCalls)
 					}
-					if wantCalls == 0 && !reflect.DeepEqual(jsonValue(t, rr.Body.Bytes()), map[string]any{"code": decoderErrorCode(test.status), "message": http.StatusText(test.status)}) {
+					if wantCalls == 0 && !reflect.DeepEqual(jsonValue(t, rr.Body.Bytes()), map[string]any{"detail": http.StatusText(test.status)}) {
 						t.Errorf("unexpected public error: %q", rr.Body.String())
 					}
 				})
@@ -224,7 +224,7 @@ func TestJSONBodyReadFailure(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			rr := httptest.NewRecorder()
 			api.mux.ServeHTTP(rr, req)
-			if rr.Code != 400 || !reflect.DeepEqual(jsonValue(t, rr.Body.Bytes()), map[string]any{"code": CodeInvalidBody, "message": "Bad Request"}) {
+			if rr.Code != 400 || !reflect.DeepEqual(jsonValue(t, rr.Body.Bytes()), map[string]any{"detail": "Bad Request"}) {
 				t.Fatalf("read failure: %d %s", rr.Code, rr.Body)
 			}
 		}

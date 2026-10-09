@@ -31,23 +31,22 @@ func captureResponseLogs(t *testing.T) *bytes.Buffer {
 }
 
 func TestManagedResponseOutcomes(t *testing.T) {
-	first, second, third := errors.New("private first"), errors.New("private second"), errors.New("private third")
+	first, second, third := errors.New("First public message"), errors.New("Second public message"), errors.New("Third public message")
 	for _, mode := range []string{"explicit", "explicit-body", "body-explicit"} {
 		for _, tc := range []struct {
 			name   string
 			result managedModel
 			err    error
 			status int
-			code   string
 			logged bool
 		}{
-			{"success", managedModel{7}, nil, 201, "", false},
-			{"zero", managedModel{}, nil, 201, "", false},
-			{"wrapped", managedModel{math.NaN()}, fmt.Errorf("private wrapper: %w", first), 409, CodeApplicationError, false},
-			{"same status", managedModel{}, third, 409, CodeApplicationError, false},
-			{"first match", managedModel{}, errors.Join(second, first), 409, CodeApplicationError, false},
-			{"unknown", managedModel{math.NaN()}, errors.New("private unknown"), 500, CodeInternalError, true},
-			{"encoding", managedModel{math.NaN()}, nil, 500, CodeInternalError, true},
+			{"success", managedModel{7}, nil, 201, false},
+			{"zero", managedModel{}, nil, 201, false},
+			{"wrapped", managedModel{math.NaN()}, fmt.Errorf("private wrapper: %w", first), 409, false},
+			{"same status", managedModel{}, third, 409, false},
+			{"first match", managedModel{}, errors.Join(second, first), 409, false},
+			{"unknown", managedModel{math.NaN()}, errors.New("private unknown"), 500, true},
+			{"encoding", managedModel{math.NaN()}, nil, 500, true},
 		} {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
 				logs := captureResponseLogs(t)
@@ -71,12 +70,19 @@ func TestManagedResponseOutcomes(t *testing.T) {
 				if rr.Code != tc.status || rr.Header().Get("Content-Type") != "application/json" {
 					t.Fatalf("response: %d %v %s", rr.Code, rr.Header(), rr.Body)
 				}
-				if tc.code != "" {
+				if tc.status >= 400 {
 					var got ErrorResponse
 					if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 						t.Fatal(err)
 					}
-					if got != (ErrorResponse{tc.code, http.StatusText(tc.status)}) {
+					detail := http.StatusText(tc.status)
+					if tc.status == 409 {
+						detail = first.Error()
+						if tc.name == "same status" {
+							detail = third.Error()
+						}
+					}
+					if got != (ErrorResponse{Detail: detail}) || !reflect.DeepEqual(jsonValue(t, rr.Body.Bytes()), map[string]any{"detail": detail}) {
 						t.Fatalf("public error: %+v", got)
 					}
 				} else if !reflect.DeepEqual(jsonValue(t, rr.Body.Bytes()), map[string]any{"value": tc.result.Value}) {
@@ -179,6 +185,40 @@ type pointerSentinel struct{}
 
 func (*pointerSentinel) Error() string { return "pointer" }
 
+type mutableSentinel struct{ message string }
+
+func (e *mutableSentinel) Error() string { return e.message }
+
+func TestRegisteredErrorDetailCapturedAtRegistration(t *testing.T) {
+	sentinel := &mutableSentinel{message: "That name is already in use"}
+	api := NewApi(http.NewServeMux())
+	route := api.Route("POST /users").Response(201, User{}).Error(409, sentinel)
+	sentinel.message = "private database context"
+	route.Error(409, sentinel).HandlerFunc(func(*http.Request) (User, error) {
+		return User{}, fmt.Errorf("insert user failed: %w", sentinel)
+	})
+	rr := httptest.NewRecorder()
+	api.mux.ServeHTTP(rr, httptest.NewRequest("POST", "/users", nil))
+	if rr.Code != 409 || rr.Body.String() != `{"detail":"That name is already in use"}` {
+		t.Fatalf("public response changed: %d %s", rr.Code, rr.Body)
+	}
+	data, err := api.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := openapi3.NewLoader().LoadFromData(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := doc.Paths.Value("/users").Post.Responses.Value("409").Value.Content["application/json"].Schema.Value
+	if !reflect.DeepEqual(schema.Properties["detail"].Value.Enum, []any{"That name is already in use"}) {
+		t.Fatal("documented detail changed after registration")
+	}
+	if err := schema.VisitJSON(jsonValue(t, rr.Body.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestManagedResultAndSentinelValidation(t *testing.T) {
 	api := NewApi(http.NewServeMux())
 	b := api.Route("GET /test")
@@ -199,15 +239,15 @@ func TestManagedResultAndSentinelValidation(t *testing.T) {
 	}
 	rr := httptest.NewRecorder()
 	api.mux.ServeHTTP(rr, httptest.NewRequest("GET", "/test", nil))
-	if rr.Code != 499 || !strings.Contains(rr.Body.String(), "Request failed") {
+	if rr.Code != 499 || rr.Body.String() != `{"detail":"sentinel"}` {
 		t.Fatalf("custom status response: %d %s", rr.Code, rr.Body)
 	}
 }
 
-func TestErrorSchemaMergesDecoderAndApplicationCodes(t *testing.T) {
+func TestErrorSchemaSharesDecoderAndApplicationResponses(t *testing.T) {
 	mux := http.NewServeMux()
 	api := NewApi(mux).BodyLimit(2)
-	sentinel := errors.New("secret")
+	sentinel := errors.New("Public message")
 	api.Route("POST /test").Body(struct{}{}).Response(200, User{}).Error(400, sentinel).Error(400, errors.New("other")).Error(500, errors.New("internal")).HandlerFunc(func(*http.Request, struct{}) (User, error) { return User{}, sentinel })
 	data, err := api.Generate()
 	if err != nil {
@@ -221,9 +261,9 @@ func TestErrorSchemaMergesDecoderAndApplicationCodes(t *testing.T) {
 	for _, tc := range []struct {
 		body, content string
 		status        int
-		code          string
+		detail        string
 	}{
-		{"{}", "application/json", 400, CodeApplicationError}, {"{", "application/json", 400, CodeInvalidBody}, {"{} ", "application/json", 413, CodeBodyTooLarge}, {"{}", "", 415, CodeUnsupportedMediaType},
+		{"{}", "application/json", 400, sentinel.Error()}, {"{", "application/json", 400, "Bad Request"}, {"{} ", "application/json", 413, "Request Entity Too Large"}, {"{}", "", 415, "Unsupported Media Type"},
 	} {
 		rr := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/test", strings.NewReader(tc.body))
@@ -236,14 +276,17 @@ func TestErrorSchemaMergesDecoderAndApplicationCodes(t *testing.T) {
 		if err := schema.VisitJSON(jsonValue(t, rr.Body.Bytes())); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(rr.Body.String(), tc.code) {
-			t.Fatalf("wrong code: %s", rr.Body)
+		if !reflect.DeepEqual(jsonValue(t, rr.Body.Bytes()), map[string]any{"detail": tc.detail}) {
+			t.Fatalf("wrong error envelope: %s", rr.Body)
 		}
 	}
-	for _, status := range []string{"400", "500"} {
-		schema := doc.Paths.Value("/test").Post.Responses.Value(status).Value.Content["application/json"].Schema.Value
-		if len(schema.Properties["code"].Value.Enum) != 2 {
-			t.Fatalf("codes did not merge: %+v", schema)
+	for status, details := range map[int][]any{
+		400: {"Bad Request", sentinel.Error(), "other"},
+		500: {"Internal Server Error", "internal"},
+	} {
+		schema := doc.Paths.Value("/test").Post.Responses.Value(fmt.Sprint(status)).Value.Content["application/json"].Schema.Value
+		if len(schema.Properties) != 1 || !reflect.DeepEqual(schema.Properties["detail"].Value.Enum, details) {
+			t.Fatalf("unexpected error schema: %+v", schema)
 		}
 	}
 }

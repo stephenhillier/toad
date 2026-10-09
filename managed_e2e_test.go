@@ -86,8 +86,7 @@ func TestCreateUserEndToEnd(t *testing.T) {
 			assertPropertyType(t, schema, "id", "integer")
 			assertPropertyType(t, schema, "name", "string")
 		} else {
-			assertPropertyType(t, schema, "code", "string")
-			assertPropertyType(t, schema, "message", "string")
+			assertPropertyType(t, schema, "detail", "string")
 		}
 	}
 
@@ -97,10 +96,10 @@ func TestCreateUserEndToEnd(t *testing.T) {
 		want                    string
 	}{
 		{"created", `{"name":"Ada"}`, "application/json", 201, `{"id":1,"name":"Ada"}`},
-		{"conflict", `{"name":"taken"}`, "application/json", 409, `{"code":"application_error","message":"Conflict"}`},
-		{"invalid body", `{"name":`, "application/json", 400, `{"code":"invalid_body","message":"Bad Request"}`},
-		{"unsupported media type", `{"name":"Ada"}`, "text/plain", 415, `{"code":"unsupported_media_type","message":"Unsupported Media Type"}`},
-		{"body too large", `{"name":"` + strings.Repeat("a", 128) + `"}`, "application/json", 413, `{"code":"body_too_large","message":"Request Entity Too Large"}`},
+		{"conflict", `{"name":"taken"}`, "application/json", 409, `{"detail":"name already taken"}`},
+		{"invalid body", `{"name":`, "application/json", 400, `{"detail":"Bad Request"}`},
+		{"unsupported media type", `{"name":"Ada"}`, "text/plain", 415, `{"detail":"Unsupported Media Type"}`},
+		{"body too large", `{"name":"` + strings.Repeat("a", 128) + `"}`, "application/json", 413, `{"detail":"Request Entity Too Large"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.status == 201 || tc.status == 409 {

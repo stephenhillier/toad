@@ -59,7 +59,7 @@ func TestSchemaReuseAndRecursion(t *testing.T) {
 		t.Fatal("pointer use made the value model nullable")
 	}
 	errorBase := doc.Components.Schemas["ErrorResponse"].Value
-	if len(errorBase.Required) != 2 || len(errorBase.Properties["code"].Value.Enum) != 0 {
+	if !reflect.DeepEqual(errorBase.Required, []string{"detail"}) || len(errorBase.Properties) != 1 || len(errorBase.Properties["detail"].Value.Enum) != 0 {
 		t.Fatal("response constraints mutated shared error model")
 	}
 	for _, status := range []string{"400", "413", "415", "500"} {
@@ -67,7 +67,7 @@ func TestSchemaReuseAndRecursion(t *testing.T) {
 		if len(schema.AllOf) != 1 || schema.AllOf[0].Ref != "#/components/schemas/ErrorResponse" {
 			t.Fatal("error component not reused")
 		}
-		if err := schema.VisitJSON(map[string]any{"code": "internal_error"}); err == nil {
+		if err := schema.VisitJSON(map[string]any{}); err == nil {
 			t.Fatal("missing envelope field accepted")
 		}
 	}

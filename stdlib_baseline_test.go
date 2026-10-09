@@ -22,11 +22,11 @@ func newStdlibCreateUserHandler() http.Handler {
 	mux.HandleFunc("POST /users", func(w http.ResponseWriter, r *http.Request) {
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mediaType != "application/json" {
-			stdlibError(w, http.StatusUnsupportedMediaType, "unsupported_media_type")
+			stdlibError(w, http.StatusUnsupportedMediaType)
 			return
 		}
 		if r.Body == nil {
-			stdlibError(w, http.StatusBadRequest, "invalid_body")
+			stdlibError(w, http.StatusBadRequest)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 128)
@@ -34,30 +34,30 @@ func newStdlibCreateUserHandler() http.Handler {
 		if err != nil {
 			var tooLarge *http.MaxBytesError
 			if errors.As(err, &tooLarge) {
-				stdlibError(w, http.StatusRequestEntityTooLarge, "body_too_large")
+				stdlibError(w, http.StatusRequestEntityTooLarge)
 			} else {
-				stdlibError(w, http.StatusBadRequest, "invalid_body")
+				stdlibError(w, http.StatusBadRequest)
 			}
 			return
 		}
 		data = bytes.Trim(data, " \t\r\n")
 		if len(data) == 0 || data[0] != '{' {
-			stdlibError(w, http.StatusBadRequest, "invalid_body")
+			stdlibError(w, http.StatusBadRequest)
 			return
 		}
 		var body createUserRequest
 		// Unmarshal accepts unknown fields but rejects trailing values/garbage.
 		if err := json.Unmarshal(data, &body); err != nil {
-			stdlibError(w, http.StatusBadRequest, "invalid_body")
+			stdlibError(w, http.StatusBadRequest)
 			return
 		}
 		result, err := createUser(r, body)
 		if err != nil {
 			if errors.Is(err, errNameTaken) {
-				stdlibError(w, http.StatusConflict, "application_error")
+				stdlibErrorDetail(w, http.StatusConflict, errNameTaken.Error())
 			} else {
 				slog.Error("stdlib baseline: unmatched handler error", "error", err)
-				stdlibError(w, http.StatusInternalServerError, "internal_error")
+				stdlibError(w, http.StatusInternalServerError)
 			}
 			return
 		}
@@ -65,7 +65,7 @@ func newStdlibCreateUserHandler() http.Handler {
 		data, err = json.Marshal(result)
 		if err != nil {
 			slog.Error("stdlib baseline: encode response", "error", err)
-			stdlibError(w, http.StatusInternalServerError, "internal_error")
+			stdlibError(w, http.StatusInternalServerError)
 			return
 		}
 		stdlibWriteJSON(w, http.StatusCreated, data)
@@ -73,13 +73,16 @@ func newStdlibCreateUserHandler() http.Handler {
 	return mux
 }
 
-func stdlibError(w http.ResponseWriter, status int, code string) {
-	// These string fields cannot fail JSON serialization. Do not use Toad's
+func stdlibError(w http.ResponseWriter, status int) {
+	stdlibErrorDetail(w, status, http.StatusText(status))
+}
+
+func stdlibErrorDetail(w http.ResponseWriter, status int, detail string) {
+	// This string field cannot fail JSON serialization. Do not use Toad's
 	// envelope or helpers: the baseline's response handling is stdlib-only.
 	data, _ := json.Marshal(struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}{code, http.StatusText(status)})
+		Detail string `json:"detail"`
+	}{detail})
 	stdlibWriteJSON(w, status, data)
 }
 
