@@ -63,7 +63,10 @@ func TestOpenAPIResponsePolicy(t *testing.T) {
 					statuses = []string{"201", "409", "500"}
 				}
 				if body {
-					statuses = append(statuses, "400", "413", "415")
+					statuses = append(statuses, "400", "413", "415", "422")
+					if mode == "ordinary" {
+						statuses = append(statuses, "500")
+					}
 				}
 				assertResponseStatuses(t, op.Responses, statuses...)
 				if op.Summary != "Create" || op.Description != "Create a user by ID" {

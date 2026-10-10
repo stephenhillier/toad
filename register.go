@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+
+	"github.com/go-playground/validator/v10"
 )
 
 // Api registers handlers and generates their OpenAPI documentation. Configure
@@ -18,6 +20,7 @@ type Api struct {
 	mux       *http.ServeMux
 	routes    []routeRecord
 	bodyLimit int64
+	validator *validator.Validate
 
 	title, description, version, server string
 }
@@ -88,6 +91,7 @@ type routeRecord struct {
 	mode                             responseMode
 	status                           int
 	errors                           []errorMapping
+	validators                       []func(*http.Request, any) error
 	descriptions                     routeDescriptions
 }
 type errorMapping struct {
@@ -116,7 +120,7 @@ func NewApi(mux *http.ServeMux) *Api {
 	if mux == nil {
 		panic("toad: NewApi requires a non-nil ServeMux")
 	}
-	api := &Api{mux: mux, bodyLimit: DefaultBodyLimit, title: "API Documentation", version: "1.0.0"}
+	api := &Api{mux: mux, bodyLimit: DefaultBodyLimit, validator: newTagValidator(), title: "API Documentation", version: "1.0.0"}
 	api.mux.HandleFunc("GET /openapi.json", api.ServeDocs)
 	api.mux.HandleFunc("GET /docs", api.ServeDocsHTML)
 	return api
@@ -215,6 +219,7 @@ func (s builderState) finalize(makeHandler func(routeRecord) http.Handler, nilHa
 		c.validateResult(r.resultType)
 	}
 	r.errors = append([]errorMapping(nil), r.errors...)
+	r.validators = append([]func(*http.Request, any) error(nil), r.validators...)
 	r.descriptions.parameters = append([]describedParameter(nil), r.descriptions.parameters...)
 	r.descriptions.responses = append([]describedPayload(nil), r.descriptions.responses...)
 	if r.descriptions.body != nil {

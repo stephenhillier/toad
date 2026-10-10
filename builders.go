@@ -22,7 +22,7 @@ func (b *RouteBuilder) Description(text string) *RouteBuilder {
 //
 // Instead of a stdlib-like func(w, r) handler, the signature will include a body param
 // of the same type passed to Body(...). This means that the request body will be deserialized
-// and passed to your handler function.
+// and validated using validate tags before being passed to your handler function.
 func (b *RouteBuilder) Body[B any](_ B) *BodyBuilder[B] {
 	return &BodyBuilder[B]{builderState: b.builderState.body(reflect.TypeFor[B]())}
 }
@@ -60,7 +60,7 @@ func (b *BodyBuilder[B]) Description(text string) *BodyBuilder[B] {
 //
 // Instead of a stdlib-like func(w, r) handler, the signature will include a body param
 // of the same type passed to Body(...). This means that the request body will be deserialized
-// and passed to your handler function.
+// and validated using validate tags before being passed to your handler function.
 func (b *BodyBuilder[B]) Body[C any](_ C) *BodyBuilder[C] {
 	return &BodyBuilder[C]{builderState: b.builderState.body(reflect.TypeFor[C]())}
 }
@@ -76,6 +76,16 @@ func (b *BodyBuilder[B]) Response[R any](status int, _ R) *BodyResponseBuilder[B
 	return &BodyResponseBuilder[B, R]{builderState: b.builderState.response(status, reflect.TypeFor[R]())}
 }
 
+// Validator adds a typed request-body check after automatic validate-tag checks.
+// Checks run in registration order, before the handler. Return Invalid for a
+// public 422 field error. go-playground ValidationErrors also produce 422;
+// other errors produce a private, generic 500 response.
+// Callbacks must be safe for concurrent requests. A nil callback panics.
+func (b *BodyBuilder[B]) Validator(fn func(*http.Request, B) error) *BodyBuilder[B] {
+	addValidator(b.builderState, fn)
+	return b
+}
+
 // HandlerFunc adds a stdlib-compatible handler function to the endpoint, completing registration.
 func (b *BodyBuilder[B]) HandlerFunc(handler func(w http.ResponseWriter, r *http.Request, body B)) {
 	b.builderState.finalize(func(record routeRecord) http.Handler {
@@ -83,6 +93,9 @@ func (b *BodyBuilder[B]) HandlerFunc(handler func(w http.ResponseWriter, r *http
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, ok := decodeBody[B](w, r, api.bodyLimit)
 			if !ok {
+				return
+			}
+			if !api.validateBody(w, r, body, record.validators) {
 				return
 			}
 			handler(w, r, body)
@@ -110,7 +123,7 @@ func (b *ResponseBuilder[R]) Description(text string) *ResponseBuilder[R] {
 //
 // Instead of a stdlib-like func(w, r) handler, the signature will include a body param
 // of the same type passed to Body(...). This means that the request body will be deserialized
-// and passed to your handler function.
+// and validated using validate tags before being passed to your handler function.
 func (b *ResponseBuilder[R]) Body[B any](_ B) *BodyResponseBuilder[B, R] {
 	return &BodyResponseBuilder[B, R]{builderState: b.builderState.body(reflect.TypeFor[B]())}
 }
@@ -164,7 +177,7 @@ func (b *BodyResponseBuilder[B, R]) Description(text string) *BodyResponseBuilde
 //
 // Instead of a stdlib-like func(w, r) handler, the signature will include a body param
 // of the same type passed to Body(...). This means that the request body will be deserialized
-// and passed to your handler function.
+// and validated using validate tags before being passed to your handler function.
 func (b *BodyResponseBuilder[B, R]) Body[C any](_ C) *BodyResponseBuilder[C, R] {
 	return &BodyResponseBuilder[C, R]{builderState: b.builderState.body(reflect.TypeFor[C]())}
 }
@@ -181,6 +194,16 @@ func (b *BodyResponseBuilder[B, R]) Error(status int, sentinel error) *BodyRespo
 	return b
 }
 
+// Validator adds a typed request-body check after automatic validate-tag checks.
+// Checks run in registration order, before the handler. Return Invalid for a
+// public 422 field error. go-playground ValidationErrors also produce 422;
+// other errors produce a private, generic 500 response.
+// Callbacks must be safe for concurrent requests. A nil callback panics.
+func (b *BodyResponseBuilder[B, R]) Validator(fn func(*http.Request, B) error) *BodyResponseBuilder[B, R] {
+	addValidator(b.builderState, fn)
+	return b
+}
+
 // HandlerFunc adds a non-stdlib handler function (with a pre-defined body and a response manager)
 // to the endpoint, completing registration.
 func (b *BodyResponseBuilder[B, R]) HandlerFunc(handler func(r *http.Request, body B) (R, error)) {
@@ -189,6 +212,9 @@ func (b *BodyResponseBuilder[B, R]) HandlerFunc(handler func(r *http.Request, bo
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, ok := decodeBody[B](w, r, api.bodyLimit)
 			if !ok {
+				return
+			}
+			if !api.validateBody(w, r, body, record.validators) {
 				return
 			}
 			result, err := handler(r, body)

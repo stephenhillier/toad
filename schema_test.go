@@ -27,7 +27,7 @@ func TestSchemaReuseAndRecursion(t *testing.T) {
 		HandlerFunc(func(_ *http.Request, body schemaNode) (schemaNode, error) { return body, nil })
 	api.Route("GET /nodes").Response(200, schemaNode{}).HandlerFunc(func(*http.Request) (schemaNode, error) { return schemaNode{}, nil })
 	doc := generatedDocument(t, api)
-	if len(doc.Components.Schemas) != 2 {
+	if len(doc.Components.Schemas) != 4 {
 		t.Fatalf("components: %v", doc.Components.Schemas)
 	}
 	ref := "#/components/schemas/schemaNode"

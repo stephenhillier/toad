@@ -157,9 +157,16 @@ func (r *schemaRegistry) shape(t reflect.Type) (*openapi3.Schema, error) {
 			}
 			schema.Properties[name] = ref
 		}
-		// This field is guaranteed by Toad's own envelope writer.
-		if t == reflect.TypeFor[ErrorResponse]() {
+		// These fields are guaranteed by Toad's own envelope writers.
+		switch t {
+		case reflect.TypeFor[ErrorResponse]():
 			schema.Required = []string{"detail"}
+		case reflect.TypeFor[ValidationErrorResponse]():
+			schema.Required = []string{"detail", "errors"}
+			schema.Properties["errors"].Value.Nullable = false
+			schema.Properties["errors"].Value.MinItems = 1
+		case reflect.TypeFor[FieldError]():
+			schema.Required = []string{"field", "code"}
 		}
 		return schema, nil
 	default:

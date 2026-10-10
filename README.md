@@ -94,6 +94,48 @@ You can wrap your registered error in internal errors and only the registered er
 
 Note: Unmapped error types (with no registered error in the chain) return a generic 500.
 
+### Request body validation
+
+Typed request bodies automatically use
+[go-playground/validator v10](https://pkg.go.dev/github.com/go-playground/validator/v10)
+to check `validate:` tags. Toad decodes JSON, checks the tags, and then calls your handler.
+
+In addition to tagged structs, Toad also supports endpoint-specific Validator functions
+(these run after tag checks).
+
+```go
+type CreateUser struct {
+    Name  string `json:"name" validate:"required,min=2,max=100"`
+    Email string `json:"email" validate:"required,email"`
+}
+
+api.Route("POST /users").
+    Body(CreateUser{}).
+    Validator(func(r *http.Request, body CreateUser) error {
+        if strings.TrimSpace(body.Name) == "" {
+            return toad.Invalid("name", "Name must not be blank")
+        }
+        return nil
+    }).
+    Response(http.StatusCreated, User{}).
+    HandlerFunc(func(r *http.Request, body CreateUser) (User, error) {
+        // All body validation has succeeded.
+        return createUser(r.Context(), body)
+    })
+```
+
+Tag failures return HTTP 422 with JSON field paths and validation codes:
+
+```json
+{
+  "detail": "Unprocessable Entity",
+  "errors": [{ "field": "email", "code": "email" }]
+}
+```
+
+See the [go-playground/validator docs](https://pkg.go.dev/github.com/go-playground/validator/v10) for more info on
+tag-based validation.
+
 ### Adopt Toad in an existing service
 
 Toad can be gradually adopted in an existing stdlib-based project, making it easier to add OpenAPI documentation without moving all of your handlers to a new framework.
@@ -123,7 +165,6 @@ Open http://localhost:8080/docs to view the API docs.
 ## Roadmap
 
 - Query parameters, path parameters
-- Validation (likely using existing validation packages)
 - Authentication documentation
 
 ## Benchmark

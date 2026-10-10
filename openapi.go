@@ -163,7 +163,7 @@ func addResponses(operation *openapi3.Operation, route routeRecord, registry *sc
 		details[status] = append(details[status], detail)
 	}
 	if route.bodyType != nil {
-		for _, status := range []int{400, 413, 415} {
+		for _, status := range []int{400, 413, 415, 500} {
 			addDetail(status, publicError(status).Detail)
 		}
 	}
@@ -184,6 +184,26 @@ func addResponses(operation *openapi3.Operation, route routeRecord, registry *sc
 		operation.Responses.Set(fmt.Sprintf("%d", status), &openapi3.ResponseRef{Value: &openapi3.Response{
 			Description: ptr(detail),
 			Content:     openapi3.Content{"application/json": &openapi3.MediaType{Schema: &openapi3.SchemaRef{Value: schema}}},
+		}})
+	}
+	if route.bodyType != nil {
+		base, _ := registry.schema(reflect.TypeFor[ValidationErrorResponse]())
+		schema := openapi3.NewObjectSchema()
+		schema.AllOf = openapi3.SchemaRefs{base}
+		schema.Properties = openapi3.Schemas{
+			"detail": {Value: openapi3.NewStringSchema().WithEnum(publicError(422).Detail)},
+		}
+		ref := &openapi3.SchemaRef{Value: schema}
+		// A managed handler may also map a sentinel to 422 with the ordinary
+		// envelope. Document both shapes rather than overriding either contract.
+		if existing := operation.Responses.Value("422"); existing != nil {
+			ref = &openapi3.SchemaRef{Value: &openapi3.Schema{AnyOf: openapi3.SchemaRefs{
+				existing.Value.Content["application/json"].Schema, ref,
+			}}}
+		}
+		operation.Responses.Set("422", &openapi3.ResponseRef{Value: &openapi3.Response{
+			Description: ptr(publicError(422).Detail),
+			Content:     openapi3.Content{"application/json": &openapi3.MediaType{Schema: ref}},
 		}})
 	}
 	if route.mode == ordinary {

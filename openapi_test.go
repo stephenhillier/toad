@@ -159,7 +159,7 @@ func TestApiGenerateWithCustomResponseSchemas(t *testing.T) {
 	} {
 		statuses := []string{test.status, "500"}
 		if test.operation.RequestBody != nil {
-			statuses = append(statuses, "400", "413", "415")
+			statuses = append(statuses, "400", "413", "415", "422")
 		}
 		assertResponseStatuses(t, test.operation.Responses, statuses...)
 		content := test.operation.Responses.Value(test.status).Value.Content["application/json"]

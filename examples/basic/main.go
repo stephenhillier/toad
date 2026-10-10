@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/stephenhillier/toad"
 )
@@ -16,8 +17,8 @@ type User struct {
 }
 
 type CreateUserRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name  string `json:"name" validate:"required,min=2,max=100"`
+	Email string `json:"email" validate:"required,email"`
 }
 
 type SuccessResponse struct {
@@ -34,7 +35,8 @@ func main() {
 
 	api.Route("POST /users").Title("Create a user").
 		Description("Build a sample user from the supplied details.").
-		Body(CreateUserRequest{}).Response(http.StatusCreated, User{}).HandlerFunc(createUserHandler)
+		Body(CreateUserRequest{}).Validator(validateCreateUser).
+		Response(http.StatusCreated, User{}).HandlerFunc(createUserHandler)
 
 	api.Route("DELETE /users/{id}").Title("Delete a user").
 		Description("Show a sample message confirming user deletion.").
@@ -60,6 +62,13 @@ func getUserHandler(r *http.Request) (User, error) {
 
 func createUserHandler(r *http.Request, req CreateUserRequest) (User, error) {
 	return User{ID: 2, Name: req.Name, Email: req.Email}, nil
+}
+
+func validateCreateUser(_ *http.Request, body CreateUserRequest) error {
+	if strings.TrimSpace(body.Name) == "" {
+		return toad.Invalid("name", "Name must not be blank")
+	}
+	return nil
 }
 
 func deleteUserHandler(r *http.Request) (SuccessResponse, error) {
