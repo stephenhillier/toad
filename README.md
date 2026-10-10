@@ -98,7 +98,7 @@ Note: Unmapped error types (with no registered error in the chain) return a gene
 
 Typed request bodies automatically use
 [go-playground/validator v10](https://pkg.go.dev/github.com/go-playground/validator/v10)
-to check `validate:` tags. Toad decodes JSON, checks the tags, and then calls your handler.
+to check `validate:` tags.
 
 In addition to tagged structs, Toad also supports endpoint-specific Validator functions
 (these run after tag checks).
