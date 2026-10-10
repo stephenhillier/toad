@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -35,6 +36,19 @@ func (r *schemaRegistry) schema(t reflect.Type) (*openapi3.SchemaRef, error) {
 }
 
 func (r *schemaRegistry) schemaIn(t reflect.Type, validated bool) (*openapi3.SchemaRef, error) {
+	// time.Time has a known JSON representation despite its custom encoding.
+	// Handle its pointers here too, before their inherited encoding methods are
+	// rejected, while retaining the usual nullable use-site schema.
+	if t == reflect.TypeFor[time.Time]() {
+		return schemaRef(openapi3.NewStringSchema().WithFormat("date-time")), nil
+	}
+	if t.Kind() == reflect.Pointer && underlying(t) == reflect.TypeFor[time.Time]() {
+		schema, err := r.shape(t, validated)
+		if err != nil {
+			return nil, err
+		}
+		return schemaRef(schema), nil
+	}
 	for _, custom := range []reflect.Type{
 		reflect.TypeFor[json.Marshaler](), reflect.TypeFor[json.Unmarshaler](),
 		reflect.TypeFor[encoding.TextMarshaler](), reflect.TypeFor[encoding.TextUnmarshaler](),

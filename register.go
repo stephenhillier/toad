@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/go-playground/validator/v10"
@@ -148,6 +149,9 @@ func (s builderState) body(t reflect.Type) builderState {
 	}
 	if t.Kind() != reflect.Struct {
 		s.config.fail("Body requires a struct-valued JSON model")
+	}
+	if t == reflect.TypeFor[time.Time]() {
+		s.config.fail("Body requires a JSON object model; time.Time encodes as a string")
 	}
 	s.current()
 	s.config.record.bodyType = t

@@ -190,12 +190,17 @@ type schemaText string
 
 func (schemaText) MarshalText() ([]byte, error) { return nil, nil }
 
+type schemaTimestampCustom time.Time
+
+func (schemaTimestampCustom) MarshalJSON() ([]byte, error) { return []byte(`123`), nil }
+
 func TestSchemaUnsupportedShapes(t *testing.T) {
 	for _, tc := range []struct {
 		value  any
 		detail string
 	}{
-		{struct{ Value time.Time }{}, "field Value: custom"},
+		{struct{ Value schemaTimestampCustom }{}, "field Value: custom"},
+		{struct{ Value *schemaTimestampCustom }{}, "field Value: custom"},
 		{struct{ Value schemaCustom }{}, "field Value: custom"},
 		{struct{ Value map[schemaText]string }{}, "map key: custom"},
 		{struct{ User }{}, "field User: embedded"},

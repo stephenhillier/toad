@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/stephenhillier/toad/internal/schematest/first"
@@ -58,6 +59,8 @@ func TestValidationSchemaMatchesRuntime(t *testing.T) {
 		{"pointer omitnil", reflect.TypeFor[*int](), "omitnil,gt=0", []string{`{}`, `{"value":null}`, `{"value":1}`}, []string{`{"value":0}`}},
 		{"pointer boolean", reflect.TypeFor[*bool](), "required", []string{`{"value":false}`, `{"value":true}`}, []string{`{}`, `{"value":null}`}},
 		{"pointer boolean omission", reflect.TypeFor[*bool](), "omitempty,required", []string{`{}`, `{"value":null}`, `{"value":false}`}, nil},
+		{"timestamp pointer required", reflect.TypeFor[*time.Time](), "required", []string{`{"value":"2026-10-09T12:34:56.123456789-07:00"}`, `{"value":"0001-01-01T00:00:00Z"}`}, []string{`{}`, `{"value":null}`}},
+		{"timestamp pointer omission", reflect.TypeFor[*time.Time](), "omitempty,required", []string{`{}`, `{"value":null}`, `{"value":"0001-01-01T00:00:00Z"}`}, nil},
 		{"boolean", reflect.TypeFor[bool](), "required", []string{`{"value":true}`}, []string{`{}`, `{"value":false}`}},
 		{"boolean omission", reflect.TypeFor[bool](), "omitempty,required", []string{`{}`, `{"value":false}`, `{"value":true}`}, nil},
 		{"required integer", reflect.TypeFor[int](), "required,min=-2,max=2", []string{`{"value":-2}`, `{"value":2}`}, []string{`{}`, `{"value":0}`, `{"value":3}`}},
@@ -175,6 +178,20 @@ func TestValidationUnsupportedAndPartialSchemas(t *testing.T) {
 		{reflect.TypeFor[validationChild](), "nostructlevel", "value", []string{"nostructlevel"}, `{"value":{}}`, ""},
 		{reflect.TypeFor[validationChild](), "omitempty", "value", []string{"omitempty"}, `{"value":{}}`, ""},
 		{reflect.TypeFor[validationChild](), "required", "value", []string{"required"}, `{"value":{"name":"ab"}}`, `{}`},
+		{reflect.TypeFor[time.Time](), "required", "value", []string{"required"}, `{"value":"2026-10-09T19:34:56Z"}`, `{}`},
+		{reflect.TypeFor[time.Time](), "gt", "value", []string{"gt"}, `{"value":"2000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[time.Time](), "gte", "value", []string{"gte"}, `{"value":"2000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[time.Time](), "lt", "value", []string{"lt"}, `{"value":"9000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[time.Time](), "lte", "value", []string{"lte"}, `{"value":"9000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[time.Time](), "min", "value", []string{"min"}, `{"value":"2000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[time.Time](), "max", "value", []string{"max"}, `{"value":"9000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[time.Time](), "gt=ignored", "value", []string{"gt=ignored"}, `{"value":"2000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[*time.Time](), "required,gt", "value", []string{"gt"}, `{"value":"2000-01-01T00:00:00Z"}`, `{"value":null}`},
+		{reflect.TypeFor[*time.Time](), "omitnil,lte", "value", []string{"lte"}, `{"value":null}`, ""},
+		{reflect.TypeFor[time.Time](), "omitempty,gt", "value", []string{"omitempty,gt"}, `{}`, ""},
+		{reflect.TypeFor[time.Time](), "gt|lt", "value", []string{"gt|lt"}, `{"value":"2026-10-09T19:34:56Z"}`, ""},
+		{reflect.TypeFor[time.Time](), "gtfield=Start", "value", []string{"gtfield=Start"}, `{"value":"2000-01-01T00:00:00Z"}`, ""},
+		{reflect.TypeFor[[]time.Time](), "dive,gt", "value", []string{"gt"}, `{"value":["2000-01-01T00:00:00Z"]}`, ""},
 		{reflect.TypeFor[[2]int](), "required", "value", []string{"required"}, `{"value":[0,0]}`, `{}`},
 		{reflect.TypeFor[string](), "min=1,omitzero,min=3", "value", []string{"omitzero,min=3"}, `{"value":"a"}`, `{"value":""}`},
 		{reflect.TypeFor[string](), "required,min=2,custom", "value", []string{"custom"}, `{"value":"ab"}`, `{}`},

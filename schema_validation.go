@@ -462,7 +462,14 @@ func validationConstraint(t reflect.Type, rule validationRule, quoted bool) (*op
 		return schemaRef(&openapi3.Schema{Enum: values}), true, nil
 	}
 	switch rule.name {
-	case "min", "max", "len", "gte", "lte", "gt", "lt":
+	case "min", "max", "gte", "lte", "gt", "lt":
+		if base == reflect.TypeFor[time.Time]() {
+			// Validator compares timestamps to the current time, ignoring any
+			// parameter. A moving bound cannot be expressed in OpenAPI 3.0;
+			// retain the rule in x-toad-validation without requiring a number.
+			return unsupported()
+		}
+	case "len":
 	default:
 		return unsupported()
 	}
