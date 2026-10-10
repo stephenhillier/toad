@@ -39,7 +39,8 @@ func (s builderState) rejectDescriptions() {
 }
 
 // DescribeBody documents a required JSON body without reading or validating it.
-// Prototypes supply types, never defaults. Individual fields are not required.
+// Prototypes supply types, never defaults. Validation tags document the contract;
+// the existing handler remains responsible for runtime validation.
 func (b *RouteBuilder) DescribeBody[B any](_ B) *RouteBuilder {
 	b.describe()
 	d := &b.config.record.descriptions
@@ -156,15 +157,15 @@ func (b *RouteBuilder) Handler(handler http.Handler) {
 
 func addDescriptions(operation *openapi3.Operation, route routeRecord, registry *schemaRegistry) error {
 	d := route.descriptions
-	schema := func(t reflect.Type, context string) (*openapi3.SchemaRef, error) {
-		ref, err := registry.schema(t)
+	schema := func(t reflect.Type, validated bool, context string) (*openapi3.SchemaRef, error) {
+		ref, err := registry.schemaIn(t, validated)
 		if err != nil {
 			return nil, fmt.Errorf("toad: route %q %s: %w", route.method+" "+route.path, context, err)
 		}
 		return ref, nil
 	}
 	if d.body != nil {
-		ref, err := schema(d.body.typ, "described body")
+		ref, err := schema(d.body.typ, true, "described body")
 		if err != nil {
 			return err
 		}
@@ -178,7 +179,7 @@ func addDescriptions(operation *openapi3.Operation, route routeRecord, registry 
 		default:
 			return fmt.Errorf("toad: route %q %s parameter %q: only scalar parameters are supported", route.method+" "+route.path, p.in, p.name)
 		}
-		ref, err := schema(p.typ, p.in+" parameter "+p.name)
+		ref, err := schema(p.typ, false, p.in+" parameter "+p.name)
 		if err != nil {
 			return err
 		}
@@ -204,7 +205,7 @@ func addDescriptions(operation *openapi3.Operation, route routeRecord, registry 
 		for _, payload := range d.responses {
 			response := &openapi3.Response{Description: ptr(getResponseDescription(payload.status))}
 			if payload.typ != nil {
-				ref, err := schema(payload.typ, fmt.Sprintf("described response %d", payload.status))
+				ref, err := schema(payload.typ, false, fmt.Sprintf("described response %d", payload.status))
 				if err != nil {
 					return err
 				}

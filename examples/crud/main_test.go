@@ -105,7 +105,7 @@ func TestDocumentation(t *testing.T) {
 	if count != 11 {
 		t.Fatalf("got %d operations, want 11", count)
 	}
-	for _, name := range []string{"Project", "ProjectInput", "Task", "TaskInput", "TaskPatch", "Owner", "ChecklistItem", "ID", "Priority", "ProjectList", "TaskList", "Deleted", "ErrorResponse"} {
+	for _, name := range []string{"Project", "ProjectInputInput", "Task", "TaskInputInput", "TaskPatchInput", "Owner", "ChecklistItem", "ID", "Priority", "ProjectList", "TaskList", "Deleted", "ErrorResponse"} {
 		if len(doc.Components.Schemas[name]) == 0 {
 			t.Errorf("missing schema %s", name)
 		}

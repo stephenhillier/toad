@@ -47,7 +47,7 @@ func (api *Api) Generate() ([]byte, error) {
 		} {
 			if model.typ != nil {
 				var err error
-				models[i], err = registry.schema(model.typ)
+				models[i], err = registry.schemaIn(model.typ, i == 0)
 				if err != nil {
 					return nil, fmt.Errorf("toad: route %q %s model %s: %w", route.method+" "+route.path, model.name, model.typ, err)
 				}

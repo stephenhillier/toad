@@ -27,12 +27,15 @@ func TestSchemaReuseAndRecursion(t *testing.T) {
 		HandlerFunc(func(_ *http.Request, body schemaNode) (schemaNode, error) { return body, nil })
 	api.Route("GET /nodes").Response(200, schemaNode{}).HandlerFunc(func(*http.Request) (schemaNode, error) { return schemaNode{}, nil })
 	doc := generatedDocument(t, api)
-	if len(doc.Components.Schemas) != 4 {
+	if len(doc.Components.Schemas) != 5 {
 		t.Fatalf("components: %v", doc.Components.Schemas)
 	}
 	ref := "#/components/schemas/schemaNode"
 	post := doc.Paths.Value("/nodes").Post
-	for _, s := range []*openapi3.SchemaRef{post.RequestBody.Value.Content["application/json"].Schema,
+	if post.RequestBody.Value.Content["application/json"].Schema.Ref != ref+"Input" {
+		t.Fatal("request context lost")
+	}
+	for _, s := range []*openapi3.SchemaRef{
 		post.Responses.Value("201").Value.Content["application/json"].Schema,
 		doc.Paths.Value("/nodes").Get.Responses.Value("200").Value.Content["application/json"].Schema} {
 		if s.Ref != ref {

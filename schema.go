@@ -16,15 +16,25 @@ import (
 // schemas are shared with request handlers or subsequent document generations.
 type schemaRegistry struct {
 	components openapi3.Schemas
-	models     map[reflect.Type]*openapi3.Schema
-	refs       map[reflect.Type][]*openapi3.SchemaRef
+	models     map[schemaKey]*openapi3.Schema
+	refs       map[schemaKey][]*openapi3.SchemaRef
+	presence   []validationPresence
+}
+
+type schemaKey struct {
+	typ       reflect.Type
+	validated bool
 }
 
 func newSchemaRegistry(components openapi3.Schemas) *schemaRegistry {
-	return &schemaRegistry{components: components, models: make(map[reflect.Type]*openapi3.Schema), refs: make(map[reflect.Type][]*openapi3.SchemaRef)}
+	return &schemaRegistry{components: components, models: make(map[schemaKey]*openapi3.Schema), refs: make(map[schemaKey][]*openapi3.SchemaRef)}
 }
 
 func (r *schemaRegistry) schema(t reflect.Type) (*openapi3.SchemaRef, error) {
+	return r.schemaIn(t, false)
+}
+
+func (r *schemaRegistry) schemaIn(t reflect.Type, validated bool) (*openapi3.SchemaRef, error) {
 	for _, custom := range []reflect.Type{
 		reflect.TypeFor[json.Marshaler](), reflect.TypeFor[json.Unmarshaler](),
 		reflect.TypeFor[encoding.TextMarshaler](), reflect.TypeFor[encoding.TextUnmarshaler](),
@@ -34,23 +44,29 @@ func (r *schemaRegistry) schema(t reflect.Type) (*openapi3.SchemaRef, error) {
 		}
 	}
 	if t.Name() != "" && t.PkgPath() != "" {
-		model, exists := r.models[t]
+		key := schemaKey{t, validated}
+		model, exists := r.models[key]
 		if !exists {
 			model = &openapi3.Schema{}
-			r.models[t] = model // Publish before descending into recursive fields.
+			r.models[key] = model // Publish before descending into recursive fields.
 		}
 		ref := &openapi3.SchemaRef{Value: model}
-		r.refs[t] = append(r.refs[t], ref)
+		r.refs[key] = append(r.refs[key], ref)
 		if !exists {
-			schema, err := r.shape(t)
+			schema, err := r.shape(t, validated)
 			if err != nil {
 				return nil, err
 			}
 			*model = *schema
+			for i := range r.presence {
+				if r.presence[i].parent == schema {
+					r.presence[i].parent = model
+				}
+			}
 		}
 		return ref, nil
 	}
-	schema, err := r.shape(t)
+	schema, err := r.shape(t, validated)
 	if err != nil {
 		return nil, err
 	}
@@ -63,10 +79,10 @@ func nullable(ref *openapi3.SchemaRef) *openapi3.Schema {
 	return &openapi3.Schema{AnyOf: openapi3.SchemaRefs{ref, {Value: &openapi3.Schema{Type: &openapi3.Types{"object"}, Nullable: true, Enum: []any{nil}}}}}
 }
 
-func (r *schemaRegistry) shape(t reflect.Type) (*openapi3.Schema, error) {
+func (r *schemaRegistry) shape(t reflect.Type, validated bool) (*openapi3.Schema, error) {
 	switch t.Kind() {
 	case reflect.Pointer:
-		ref, err := r.schema(t.Elem())
+		ref, err := r.schemaIn(t.Elem(), validated)
 		if err != nil {
 			return nil, err
 		}
@@ -135,10 +151,7 @@ func (r *schemaRegistry) shape(t reflect.Type) (*openapi3.Schema, error) {
 			if schema.Properties[name] != nil {
 				return nil, fmt.Errorf("field %s: duplicate JSON name %q is unsupported", field.Name, name)
 			}
-			ref, err := r.schema(field.Type)
-			if err != nil {
-				return nil, fmt.Errorf("field %s: %w", field.Name, err)
-			}
+			quotedField := false
 			for _, option := range strings.Split(options, ",") {
 				if option != "string" {
 					continue
@@ -150,12 +163,27 @@ func (r *schemaRegistry) shape(t reflect.Type) (*openapi3.Schema, error) {
 				switch base.Kind() {
 				case reflect.Bool, reflect.String, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 					reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr, reflect.Float32, reflect.Float64:
-					quoted := openapi3.NewStringSchema()
-					quoted.Nullable = field.Type.Kind() == reflect.Pointer
-					ref = &openapi3.SchemaRef{Value: quoted}
+					quotedField = true
 				}
 			}
+			var ref *openapi3.SchemaRef
+			var err error
+			if validated {
+				var required bool
+				ref, required, err = r.validatedField(field.Type, field.Tag.Get("validate"), quotedField)
+				if required {
+					schema.Required = append(schema.Required, name)
+				}
+			} else {
+				ref, err = r.fieldSchema(field.Type, false, quotedField)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("field %s: %w", field.Name, err)
+			}
 			schema.Properties[name] = ref
+			if validated && field.Tag.Get("validate") != "-" {
+				r.presence = append(r.presence, validationPresence{schema, name, field.Type, quotedField, ref})
+			}
 		}
 		// These fields are guaranteed by Toad's own envelope writers.
 		switch t {
@@ -187,28 +215,38 @@ func validJSONName(name string) bool {
 // Resolve names only after discovery so route registration order cannot decide
 // which of two same-named Go types receives the short component name.
 func (r *schemaRegistry) finish() error {
+	r.inferValidationPresence()
 	groups := make(map[string]int)
-	names := make(map[reflect.Type]string)
-	for t := range r.models {
+	names := make(map[schemaKey]string)
+	for key := range r.models {
+		t := key.typ
 		name := strings.Map(func(c rune) rune {
 			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._-", c) {
 				return c
 			}
 			return '_'
 		}, t.Name())
-		names[t] = name
+		if key.validated {
+			name += "Input"
+		}
+		names[key] = name
 		groups[name]++
 	}
-	for t, name := range names {
+	for key, name := range names {
+		t := key.typ
 		if groups[name] > 1 {
-			hash := sha256.Sum256([]byte(t.PkgPath() + "." + t.String()))
+			identity := t.PkgPath() + "." + t.String()
+			if key.validated {
+				identity += ":input"
+			}
+			hash := sha256.Sum256([]byte(identity))
 			name = fmt.Sprintf("%s_%x", name, hash)
 		}
 		if _, exists := r.components[name]; exists {
 			return fmt.Errorf("toad: schema component name collision for %s", t)
 		}
-		r.components[name] = &openapi3.SchemaRef{Value: r.models[t]}
-		for _, ref := range r.refs[t] {
+		r.components[name] = &openapi3.SchemaRef{Value: r.models[key]}
+		for _, ref := range r.refs[key] {
 			ref.Ref = "#/components/schemas/" + name
 		}
 	}

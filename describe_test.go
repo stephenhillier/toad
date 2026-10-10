@@ -82,8 +82,8 @@ func TestDescriptionsPreserveHandlerAndGenerate(t *testing.T) {
 	if len(op.Responses.Status(204).Value.Content) != 0 || op.Responses.Status(400).Value.Content["application/json"] == nil {
 		t.Fatal("response options lost")
 	}
-	if body.Content["application/json"].Schema.Ref != op.Responses.Status(201).Value.Content["application/json"].Schema.Ref {
-		t.Fatal("schema not reused")
+	if body.Content["application/json"].Schema.Ref != op.Responses.Status(201).Value.Content["application/json"].Schema.Ref+"Input" {
+		t.Fatal("request and response contexts lost")
 	}
 	if len(op.Parameters) != 3 {
 		t.Fatal("duplicated parameters")
