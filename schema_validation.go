@@ -48,6 +48,15 @@ func parseValidation(tag string) ([]validationRule, error) {
 			if name == "" {
 				return nil, fmt.Errorf("validation rule %q: empty alternative", raw)
 			}
+			if name == "-" {
+				return nil, fmt.Errorf("validation rule %q: skip tag must be used alone", raw)
+			}
+			if rule.or {
+				switch name {
+				case "dive", "keys", "endkeys", "omitempty", "omitnil", "omitzero", "structonly", "nostructlevel":
+					return nil, fmt.Errorf("validation rule %q: control tag %q cannot appear in an OR expression", raw, name)
+				}
+			}
 		}
 		rules = append(rules, rule)
 	}
@@ -325,7 +334,7 @@ func (r *schemaRegistry) validationSchema(t reflect.Type, rules []validationRule
 			return conjunction(ref, schemaRef(s)), unsupported, nil
 		case "keys", "endkeys":
 			return fail(fmt.Errorf("requires a matching map dive/keys group"))
-		case "omitzero", "structonly", "nostructlevel", "-":
+		case "omitzero", "structonly", "nostructlevel":
 			// These controls change subsequent validation or automatic traversal.
 			ref, err := r.fieldSchema(t, false, quoted)
 			return ref, []string{rawRules(rules)}, err
@@ -553,7 +562,14 @@ func validationNumber(t reflect.Type, param string) (float64, bool, error) {
 		return float64(n), exactInteger(new(big.Int).SetUint64(n)), err
 	case reflect.Float32, reflect.Float64:
 		n, err := strconv.ParseFloat(param, t.Bits())
-		return n, !math.IsInf(n, 0) && !math.IsNaN(n), err
+		exact := !math.IsInf(n, 0) && !math.IsNaN(n)
+		if t.Kind() == reflect.Float32 && err == nil {
+			// A rounded float32 parameter can emit a bound that rejects the
+			// original JSON number (e.g. min=0.1 becomes 0.10000000149011612).
+			wire, wireErr := strconv.ParseFloat(param, 64)
+			exact = exact && wireErr == nil && wire == n
+		}
+		return n, exact, err
 	default:
 		return 0, false, nil
 	}

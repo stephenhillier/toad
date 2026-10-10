@@ -63,6 +63,7 @@ func TestValidationSchemaMatchesRuntime(t *testing.T) {
 		{"required integer", reflect.TypeFor[int](), "required,min=-2,max=2", []string{`{"value":-2}`, `{"value":2}`}, []string{`{}`, `{"value":0}`, `{"value":3}`}},
 		{"integer exclusive", reflect.TypeFor[int](), "gt=-2,lt=2", []string{`{}`, `{"value":-1}`, `{"value":1}`}, []string{`{"value":-2}`, `{"value":2}`}},
 		{"float inclusive", reflect.TypeFor[float64](), "gte=0.5,lte=1.5", []string{`{"value":0.5}`, `{"value":1.5}`}, []string{`{}`, `{"value":0.49}`, `{"value":1.51}`}},
+		{"exact float32 inclusive", reflect.TypeFor[float32](), "gte=0.5,lte=1.5", []string{`{"value":0.5}`, `{"value":1.5}`}, []string{`{}`, `{"value":0.49}`, `{"value":1.51}`}},
 		{"float exclusive", reflect.TypeFor[float64](), "gt=0.5,lt=1.5", []string{`{"value":1}`}, []string{`{}`, `{"value":0.5}`, `{"value":1.5}`}},
 		{"numeric len", reflect.TypeFor[float64](), "len=1.5", []string{`{"value":1.5}`}, []string{`{}`, `{"value":1}`, `{"value":2}`}},
 		{"unsigned", reflect.TypeFor[uint64](), "min=0x2,max=4", []string{`{"value":2}`, `{"value":4}`}, []string{`{}`, `{"value":1}`, `{"value":5}`}},
@@ -180,6 +181,8 @@ func TestValidationUnsupportedAndPartialSchemas(t *testing.T) {
 		{reflect.TypeFor[string](), "omitnil,required,custom", "value", []string{"custom"}, `{"value":"ab"}`, `{}`},
 		{reflect.TypeFor[string](), "omitempty,required,custom", "value", []string{"custom"}, `{}`, ""},
 		{reflect.TypeFor[float64](), "min=NaN", "value", []string{"min=NaN"}, `{"value":1}`, ""},
+		{reflect.TypeFor[float32](), "gte=0.1,lte=0.2", "value", []string{"gte=0.1", "lte=0.2"}, `{"value":0.1}`, ""},
+		{reflect.TypeFor[float32](), "len=0.1", "value", []string{"len=0.1"}, `{"value":0.1}`, ""},
 		{reflect.TypeFor[int64](), "max=9007199254740993", "value", []string{"max=9007199254740993"}, `{"value":1}`, ""},
 		{reflect.TypeFor[int64](), "oneof=9007199254740992", "value", []string{"oneof=9007199254740992"}, `{"value":1}`, ""},
 		{reflect.TypeFor[*int](), "isdefault,min=2", "value", []string{"isdefault,min=2"}, `{}`, ""},
@@ -233,6 +236,15 @@ func TestValidationMalformedTagsHaveContext(t *testing.T) {
 		{reflect.TypeFor[map[string]int](), "dive,keys,required"},
 		{reflect.TypeFor[map[string]int](), "keys,required,endkeys"},
 		{reflect.TypeFor[map[string]int](), "dive,endkeys"},
+		{reflect.TypeFor[[]int](), "dive|required"},
+		{reflect.TypeFor[string](), "omitempty|min=2"},
+		{reflect.TypeFor[*string](), "required|omitnil"},
+		{reflect.TypeFor[map[string]int](), "keys|required"},
+		{reflect.TypeFor[map[string]int](), "required|endkeys"},
+		{reflect.TypeFor[validationChild](), "structonly|required"},
+		{reflect.TypeFor[validationChild](), "required|nostructlevel"},
+		{reflect.TypeFor[string](), "omitzero|required"},
+		{reflect.TypeFor[string](), "-,required"},
 	} {
 		t.Run(tc.tag, func(t *testing.T) {
 			typ := reflect.StructOf([]reflect.StructField{{Name: "Outer", Type: validationModel(tc.typ, tc.tag, "value")}})
@@ -256,6 +268,30 @@ func TestValidationMalformedTagsHaveContext(t *testing.T) {
 		_, err := api.Generate()
 		if err == nil || !strings.Contains(err.Error(), `route "POST /broken"`) || !strings.Contains(err.Error(), `field Value: validation rule "min=bad"`) {
 			t.Fatalf("route context: %v", err)
+		}
+	}
+}
+
+func TestValidationFloat32WireBoundary(t *testing.T) {
+	type body struct {
+		Value float32 `json:"value" validate:"gte=0.1,lte=0.2"`
+	}
+	mux := http.NewServeMux()
+	api := NewApi(mux)
+	api.Route("POST /float32").Body(body{}).Response(200, body{}).
+		HandlerFunc(func(_ *http.Request, b body) (body, error) { return b, nil })
+	doc := generatedDocument(t, api)
+	schema := doc.Paths.Value("/float32").Post.RequestBody.Value.Content["application/json"].Schema.Value
+	for _, value := range []string{`{"value":0.1}`, `{"value":0.2}`} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/float32", strings.NewReader(value))
+		r.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("%s: status=%d body=%s", value, w.Code, w.Body.String())
+		}
+		if err := schema.VisitJSON(jsonValue(t, []byte(value))); err != nil {
+			t.Fatalf("schema rejects valid wire boundary %s: %v", value, err)
 		}
 	}
 }
