@@ -21,8 +21,8 @@ type ID uint64
 type Priority string
 
 type Owner struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name  string `json:"name" validate:"required"`
+	Email string `json:"email" validate:"required"`
 }
 
 type Project struct {
@@ -36,7 +36,7 @@ type Project struct {
 
 // Fields used to create or replace a project.
 type ProjectInput struct {
-	Name        string            `json:"name"`
+	Name        string            `json:"name" validate:"required"`
 	Description string            `json:"description"`
 	Owner       Owner             `json:"owner"`
 	Labels      []string          `json:"labels,omitempty"`
@@ -55,23 +55,23 @@ type Task struct {
 }
 
 type ChecklistItem struct {
-	Text string `json:"text"`
+	Text string `json:"text" validate:"required"`
 	Done bool   `json:"done"`
 }
 
 type TaskInput struct {
-	ProjectID     ID              `json:"project_id"`
-	Title         string          `json:"title"`
+	ProjectID     ID              `json:"project_id" validate:"gt=0"`
+	Title         string          `json:"title" validate:"required"`
 	Completed     bool            `json:"completed"`
-	Priority      Priority        `json:"priority"`
-	EstimateHours float64         `json:"estimate_hours"`
-	Assignee      *Owner          `json:"assignee,omitempty"`
-	Checklist     []ChecklistItem `json:"checklist,omitempty"`
+	Priority      Priority        `json:"priority" validate:"oneof=low normal high"`
+	EstimateHours float64         `json:"estimate_hours" validate:"gte=0"`
+	Assignee      *Owner          `json:"assignee,omitempty" validate:"omitempty"`
+	Checklist     []ChecklistItem `json:"checklist,omitempty" validate:"dive"`
 }
 
 // A pointer lets us distinguish false from a missing value.
 type TaskPatch struct {
-	Completed *bool `json:"completed"`
+	Completed *bool `json:"completed" validate:"required"`
 }
 
 type ProjectList struct {
@@ -93,11 +93,8 @@ var (
 	errInvalidID      = errors.New("ID must be a positive integer")
 	errProjectMissing = errors.New("Project not found")
 	errTaskMissing    = errors.New("Task not found")
-	errProjectInvalid = errors.New("Project requires a non-blank name and owner name and email")
-	errTaskInvalid    = errors.New("Task requires a project_id, non-blank title, priority low/normal/high, non-negative estimate_hours, and non-blank checklist text; an assignee requires name and email")
 	errNameTaken      = errors.New("Project name already exists")
 	errProjectInUse   = errors.New("Delete this project's tasks before deleting the project")
-	errPatchInvalid   = errors.New("completed must be provided as a boolean")
 )
 
 // A mutex protects the maps. Nested values stay unchanged after storage.
@@ -113,60 +110,104 @@ func newAPI() (*http.ServeMux, *toad.Api) {
 	api := toad.NewApi(mux).
 		Title("ProjectFrog Backend API").
 		Description("A simple API for an app for managing projects and tasks.").
-		Version("1.0.0").Server("/").BodyLimit(16 << 10)
+		Version("1.0.0").
+		Server("/").
+		BodyLimit(16 << 10)
 	s := &store{nextProject: 1, nextTask: 1, projects: make(map[ID]Project), tasks: make(map[ID]Task)}
 
-	api.Route("GET /projects").Title("List projects").
+	api.Route("GET /projects").
+		Title("List projects").
 		Description("Browse all projects, ordered by their ID.").
-		Response(http.StatusOK, ProjectList{}).HandlerFunc(s.listProjects)
+		Response(http.StatusOK, ProjectList{}).
+		HandlerFunc(s.listProjects)
 
-	api.Route("POST /projects").Title("Create a project").
+	api.Route("POST /projects").
+		Title("Create a project").
 		Description("Create a new project with an owner.").
-		Body(ProjectInput{}).Response(http.StatusCreated, Project{}).
-		Error(http.StatusUnprocessableEntity, errProjectInvalid).Error(http.StatusConflict, errNameTaken).HandlerFunc(s.createProject)
+		Body(ProjectInput{}).
+		Validator(validateProjectInput).
+		Response(http.StatusCreated, Project{}).
+		Error(http.StatusConflict, errNameTaken).
+		HandlerFunc(s.createProject)
 
-	api.Route("GET /projects/{id}").Title("Get a project").
+	api.Route("GET /projects/{id}").
+		Title("Get a project").
 		Description("Find a project using its ID.").
-		Response(http.StatusOK, Project{}).Error(http.StatusBadRequest, errInvalidID).Error(http.StatusNotFound, errProjectMissing).HandlerFunc(s.getProject)
+		Response(http.StatusOK, Project{}).
+		Error(http.StatusBadRequest, errInvalidID).
+		Error(http.StatusNotFound, errProjectMissing).
+		HandlerFunc(s.getProject)
 
-	api.Route("PUT /projects/{id}").Title("Replace a project").
+	api.Route("PUT /projects/{id}").
+		Title("Replace a project").
 		Description("Replace the details of an existing project.").
-		Response(http.StatusOK, Project{}).Body(ProjectInput{}).
-		Error(http.StatusBadRequest, errInvalidID).Error(http.StatusNotFound, errProjectMissing).
-		Error(http.StatusUnprocessableEntity, errProjectInvalid).Error(http.StatusConflict, errNameTaken).HandlerFunc(s.replaceProject)
+		Response(http.StatusOK, Project{}).
+		Body(ProjectInput{}).
+		Validator(validateProjectInput).
+		Error(http.StatusBadRequest, errInvalidID).
+		Error(http.StatusNotFound, errProjectMissing).
+		Error(http.StatusConflict, errNameTaken).
+		HandlerFunc(s.replaceProject)
 
-	api.Route("DELETE /projects/{id}").Title("Delete a project").
+	api.Route("DELETE /projects/{id}").
+		Title("Delete a project").
 		Description("Remove a project once its tasks are deleted.").
-		Response(http.StatusOK, Deleted{}).Error(http.StatusBadRequest, errInvalidID).
-		Error(http.StatusNotFound, errProjectMissing).Error(http.StatusConflict, errProjectInUse).HandlerFunc(s.deleteProject)
+		Response(http.StatusOK, Deleted{}).
+		Error(http.StatusBadRequest, errInvalidID).
+		Error(http.StatusNotFound, errProjectMissing).
+		Error(http.StatusConflict, errProjectInUse).
+		HandlerFunc(s.deleteProject)
 
-	api.Route("GET /tasks").Title("List tasks").
+	api.Route("GET /tasks").
+		Title("List tasks").
 		Description("Browse all tasks, ordered by their ID.").
-		Response(http.StatusOK, TaskList{}).HandlerFunc(s.listTasks)
+		Response(http.StatusOK, TaskList{}).
+		HandlerFunc(s.listTasks)
 
-	api.Route("POST /tasks").Title("Create a task").
+	api.Route("POST /tasks").
+		Title("Create a task").
 		Description("Add a new task to an existing project.").
-		Body(TaskInput{}).Response(http.StatusCreated, Task{}).
-		Error(http.StatusUnprocessableEntity, errTaskInvalid).Error(http.StatusNotFound, errProjectMissing).HandlerFunc(s.createTask)
+		Body(TaskInput{}).
+		Validator(validateTaskInput).
+		Response(http.StatusCreated, Task{}).
+		Error(http.StatusNotFound, errProjectMissing).
+		HandlerFunc(s.createTask)
 
-	api.Route("GET /tasks/{id}").Title("Get a task").
+	api.Route("GET /tasks/{id}").
+		Title("Get a task").
 		Description("Find a task using its ID.").
-		Response(http.StatusOK, Task{}).Error(http.StatusBadRequest, errInvalidID).Error(http.StatusNotFound, errTaskMissing).HandlerFunc(s.getTask)
+		Response(http.StatusOK, Task{}).
+		Error(http.StatusBadRequest, errInvalidID).
+		Error(http.StatusNotFound, errTaskMissing).
+		HandlerFunc(s.getTask)
 
-	api.Route("PUT /tasks/{id}").Title("Replace a task").
+	api.Route("PUT /tasks/{id}").
+		Title("Replace a task").
 		Description("Replace the details of an existing task.").
-		Response(http.StatusOK, Task{}).Body(TaskInput{}).Error(http.StatusBadRequest, errInvalidID).
-		Error(http.StatusNotFound, errTaskMissing).Error(http.StatusNotFound, errProjectMissing).
-		Error(http.StatusUnprocessableEntity, errTaskInvalid).HandlerFunc(s.replaceTask)
+		Response(http.StatusOK, Task{}).
+		Body(TaskInput{}).
+		Validator(validateTaskInput).
+		Error(http.StatusBadRequest, errInvalidID).
+		Error(http.StatusNotFound, errTaskMissing).
+		Error(http.StatusNotFound, errProjectMissing).
+		HandlerFunc(s.replaceTask)
 
-	api.Route("PATCH /tasks/{id}").Title("Set task completion").
+	api.Route("PATCH /tasks/{id}").
+		Title("Set task completion").
 		Description("Mark a task as complete or incomplete.").
-		Body(TaskPatch{}).Response(http.StatusOK, Task{}).Error(http.StatusBadRequest, errInvalidID).
-		Error(http.StatusNotFound, errTaskMissing).Error(http.StatusUnprocessableEntity, errPatchInvalid).HandlerFunc(s.patchTask)
+		Body(TaskPatch{}).
+		Response(http.StatusOK, Task{}).
+		Error(http.StatusBadRequest, errInvalidID).
+		Error(http.StatusNotFound, errTaskMissing).
+		HandlerFunc(s.patchTask)
 
-	api.Route("DELETE /tasks/{id}").Title("Delete a task").
+	api.Route("DELETE /tasks/{id}").
+		Title("Delete a task").
 		Description("Remove a task from its project.").
-		Response(http.StatusOK, Deleted{}).Error(http.StatusBadRequest, errInvalidID).Error(http.StatusNotFound, errTaskMissing).HandlerFunc(s.deleteTask)
+		Response(http.StatusOK, Deleted{}).
+		Error(http.StatusBadRequest, errInvalidID).
+		Error(http.StatusNotFound, errTaskMissing).
+		HandlerFunc(s.deleteTask)
 
 	return mux, api
 }
@@ -191,15 +232,44 @@ func pathID(r *http.Request) (ID, error) {
 	return ID(n), nil
 }
 
-func validOwner(o Owner) bool {
-	return strings.TrimSpace(o.Name) != "" && strings.TrimSpace(o.Email) != ""
+// Tag checks run first; callbacks handle whitespace-only text with public field errors.
+func validateOwner(field string, owner Owner) error {
+	if strings.TrimSpace(owner.Name) == "" {
+		return toad.Invalid(field+".name", "Name must not be blank")
+	}
+	if strings.TrimSpace(owner.Email) == "" {
+		return toad.Invalid(field+".email", "Email must not be blank")
+	}
+	return nil
 }
 
+func validateProjectInput(_ *http.Request, in ProjectInput) error {
+	if strings.TrimSpace(in.Name) == "" {
+		return toad.Invalid("name", "Name must not be blank")
+	}
+	return validateOwner("owner", in.Owner)
+}
+
+func validateTaskInput(_ *http.Request, in TaskInput) error {
+	if strings.TrimSpace(in.Title) == "" {
+		return toad.Invalid("title", "Title must not be blank")
+	}
+	if in.Assignee != nil {
+		if err := validateOwner("assignee", *in.Assignee); err != nil {
+			return err
+		}
+	}
+	for i, item := range in.Checklist {
+		if strings.TrimSpace(item.Text) == "" {
+			return toad.Invalid(fmt.Sprintf("checklist[%d].text", i), "Checklist text must not be blank")
+		}
+	}
+	return nil
+}
+
+// State-dependent checks stay under the store lock, together with the writes.
 func (s *store) projectValue(id ID, in ProjectInput) (Project, error) {
 	in.Name = strings.TrimSpace(in.Name)
-	if in.Name == "" || !validOwner(in.Owner) {
-		return Project{}, errProjectInvalid
-	}
 	for otherID, p := range s.projects {
 		if otherID != id && strings.EqualFold(p.Name, in.Name) {
 			return Project{}, fmt.Errorf("project uniqueness check: %w", errNameTaken)
@@ -216,14 +286,6 @@ func (s *store) projectValue(id ID, in ProjectInput) (Project, error) {
 
 func (s *store) taskValue(id ID, in TaskInput) (Task, error) {
 	in.Title = strings.TrimSpace(in.Title)
-	if in.ProjectID == 0 || in.Title == "" || (in.Priority != "low" && in.Priority != "normal" && in.Priority != "high") || in.EstimateHours < 0 || (in.Assignee != nil && !validOwner(*in.Assignee)) {
-		return Task{}, errTaskInvalid
-	}
-	for _, item := range in.Checklist {
-		if strings.TrimSpace(item.Text) == "" {
-			return Task{}, errTaskInvalid
-		}
-	}
 	if _, ok := s.projects[in.ProjectID]; !ok {
 		return Task{}, fmt.Errorf("task project lookup: %w", errProjectMissing)
 	}
@@ -392,9 +454,6 @@ func (s *store) patchTask(r *http.Request, in TaskPatch) (Task, error) {
 	task, ok := s.tasks[id]
 	if !ok {
 		return Task{}, errTaskMissing
-	}
-	if in.Completed == nil {
-		return Task{}, errPatchInvalid
 	}
 	task.Completed = *in.Completed
 	s.tasks[id] = task
