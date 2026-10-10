@@ -1,3 +1,11 @@
 [tasks.bench]
 description = "Compare Toad and stdlib request-handling benchmarks"
 run = "go test -run '^$' -bench '^BenchmarkCreateUserRequestHandling$' -benchmem -count=5"
+
+[tasks."bench:startup"]
+description = "Measure API registration and OpenAPI startup costs at 25, 100, and 250 endpoints"
+run = "go test -run '^$' -bench '^BenchmarkAPIStartup$' -benchmem -count=5"
+
+[tasks."bench:cold-warm"]
+description = "Compare cold and warm requests on the 100-endpoint API fixture"
+run = "go test -run '^$' -bench '^BenchmarkAPIRequestColdWarm$' -benchmem -benchtime=1000x -count=5"

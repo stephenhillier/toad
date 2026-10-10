@@ -9,7 +9,7 @@
 
 Toad is a micro-framework that makes it easy to create JSON-based HTTP APIs with OpenAPI documentation using the Go programming language.
 
-Toad allows you to register endpoints using ServeMux-style patterns, add documentation to them, and attach either a Toad handler with typed request bodies and response models, or a normal stdlib http handler.
+Toad allows you to register endpoints using ServeMux-style patterns, add documentation to them, and attach either a Toad handler with typed request bodies and response models, or a normal stdlib http handler. Registered endpoints are automatically added to OpenAPI documentation.
 
 Go version 1.27 is required.
 
@@ -167,8 +167,42 @@ Open http://localhost:8080/docs to view the API docs.
 - Query parameters, path parameters
 - Authentication documentation
 
-## Benchmark
+## Benchmarks
+
+There are benchmarks to compare request handling to stdlib handlers, API startup time (generating docs for a large number of endpoints), and cold requests (to account for validator setup/caching). For each benchmark, I've added a summary from my own tests.
+
+**Compare Toad and stdlib request handling (excludes startup and OpenAPI generation):**
 
 ```sh
-go test -run '^$' -bench '^BenchmarkCreateUserRequestHandling$/Stdlib' -benchmem -count=5
+mise run bench
+# Or:
+go test -run '^$' -bench '^BenchmarkCreateUserRequestHandling$' -benchmem -count=5
 ```
+
+Toad's typed handler performance is similar to stdlib-only handlers (0.2 μs overhead).
+
+**API startup time and OpenAPI generation:**
+
+```sh
+mise run bench:startup
+# Or:
+go test -run '^$' -bench '^BenchmarkAPIStartup$' -benchmem -count=5
+
+# 100 endpoint case only:
+go test -run '^$' -bench '^BenchmarkAPIStartup/Endpoints100/' -benchmem -count=5
+```
+
+The 100 endpoint test API takes approximately 20 ms for startup and OpenAPI generation.
+
+**Compare cold and warm requests on the 100 endpoint fixture:**
+
+`go-playground/validator` builds and caches validation metadata the first time each struct type is validated.
+This benchmark measures the impact of that on API requests.
+
+```sh
+mise run bench:cold-warm
+# Or:
+go test -run '^$' -bench '^BenchmarkAPIRequestColdWarm$' -benchmem -benchtime=1000x -count=5
+```
+
+The first request to an endpoint with validation takes approximately 40 μs extra.
